@@ -19,5 +19,3 @@ Tested on the GPU test cluster of Kybernate (three nodes with 2× RTX 3060 each,
 | Language | a German browser gets the German UI; the button switches to English | passed |
 | Sign out | the cookie is deleted | passed |
 | Phone width | no horizontal scrolling, all controls reachable | passed |
-
-The live updates and the problem display need Kybernate with the conditions `DevicePluginReady` and `CDIReady`, from the release after `v0.2.0`. With `v0.2.0`, the dashboard shows failed and outdated inventories only.
