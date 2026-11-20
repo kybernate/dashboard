@@ -98,7 +98,7 @@ func gpuNode(name string, reserved []string, uuids ...string) *unstructured.Unst
 		"apiVersion": "kybernate.io/v1alpha1",
 		"kind":       "GPUNode",
 		"metadata":   map[string]any{"name": name},
-		"status":     map[string]any{"gpuCount": int64(len(uuids)), "gpus": gpus, "driverVersion": "615.71.09"},
+		"status":     map[string]any{"gpuCount": int64(len(uuids)), "gpus": gpus, "driverVersion": "999.99.99"},
 	}}
 	if len(reserved) > 0 {
 		list := make([]any, 0, len(reserved))
@@ -128,7 +128,7 @@ func TestListGPUNodes(t *testing.T) {
 		t.Fatalf("nodes = %+v", nodes)
 	}
 	a := nodes[0]
-	if !slices.Equal(a.Spec.ReservedGPUs, []string{"GPU-a1"}) || len(a.Status.GPUs) != 2 || a.Status.DriverVersion != "615.71.09" {
+	if !slices.Equal(a.Spec.ReservedGPUs, []string{"GPU-a1"}) || len(a.Status.GPUs) != 2 || a.Status.DriverVersion != "999.99.99" {
 		t.Fatalf("node-a = %+v", a)
 	}
 	if got := a.Status.GPUs[1].AllocatedTo; len(got) != 1 || got[0].Name != "trainer" {
