@@ -17,53 +17,55 @@
         <span id="cluster"></span>
       </div>
       <div class="kpis" id="dash-kpis"></div>
-      <div class="user" id="user" hidden>
-        <span id="user-name" class="user-name"></span>
-        <button type="button" id="logout" class="ghost-btn">Sign out</button>
+      <div class="user">
+        <span class="live" id="live" hidden></span>
+        <button type="button" id="lang" class="ghost-btn" aria-label="Language"></button>
+        <span id="user-name" class="user-name" hidden></span>
+        <button type="button" id="logout" class="ghost-btn" data-i18n="signOut" hidden>Sign out</button>
       </div>
     </header>
 
     <main class="login" id="login" hidden>
       <form class="login-card" id="login-form" autocomplete="off">
-        <h1>Sign in</h1>
-        <p>Enter a Kubernetes bearer token. The dashboard acts with this token, so Kubernetes RBAC decides what you can see and change.</p>
-        <label for="token">Token</label>
+        <h1 data-i18n="signIn">Sign in</h1>
+        <p data-i18n="signInIntro">Enter a Kubernetes bearer token. The dashboard acts with this token, so Kubernetes RBAC decides what you can see and change.</p>
+        <label for="token" data-i18n="token">Token</label>
         <textarea id="token" name="token" rows="5" spellcheck="false" required></textarea>
         <p class="login-error" id="login-error" role="alert"></p>
-        <button type="submit" class="primary-btn" id="login-submit">Sign in</button>
+        <button type="submit" class="primary-btn" id="login-submit" data-i18n="signIn">Sign in</button>
         <details>
-          <summary>How do I get a token?</summary>
-          <p>Create a ServiceAccount with access to the GPU inventory and request a token for it:</p>
+          <summary data-i18n="tokenHow">How do I get a token?</summary>
+          <p data-i18n="tokenHowText">Create a ServiceAccount with access to the GPU inventory and request a token for it:</p>
           <pre><code>kubectl -n kybernate-system create serviceaccount gpu-admin
 kubectl create clusterrolebinding gpu-admin \
   --clusterrole=kybernate-editor \
   --serviceaccount=kybernate-system:gpu-admin
 kubectl -n kybernate-system create token gpu-admin --duration=8h</code></pre>
-          <p><code>kybernate-editor</code> may reserve GPUs, <code>kybernate-viewer</code> may only look.</p>
+          <p data-i18n-html="tokenRoles"><code>kybernate-editor</code> may reserve GPUs, <code>kybernate-viewer</code> may only look.</p>
         </details>
       </form>
     </main>
 
     <div class="dash-body" id="app" hidden>
-      <nav class="dash-nodes" id="dash-nodes" aria-label="GPU nodes"></nav>
+      <nav class="dash-nodes" id="dash-nodes" data-i18n-aria="nodes"></nav>
       <section class="dash-main" aria-live="polite">
         <div class="dash-node-head">
           <div>
             <h2 id="dash-node-name"></h2>
             <p id="dash-node-desc"></p>
           </div>
-          <div class="seg" role="group" aria-label="View">
-            <button type="button" data-view="topo" aria-pressed="true">Topology</button>
-            <button type="button" data-view="matrix" aria-pressed="false">Matrix</button>
+          <div class="seg" role="group" data-i18n-aria="view">
+            <button type="button" data-view="topo" aria-pressed="true" data-i18n="topology">Topology</button>
+            <button type="button" data-view="matrix" aria-pressed="false" data-i18n="matrix">Matrix</button>
           </div>
         </div>
-        <p class="dash-warn" id="dash-warn" hidden></p>
+        <div class="dash-warn" id="dash-warn" role="alert" hidden></div>
         <div id="dash-topo" class="dash-topo"></div>
         <div id="dash-matrix" class="dash-matrix" hidden></div>
         <div class="dash-gpus" id="dash-gpus"></div>
         <p class="dash-msg" id="dash-msg" role="status"></p>
       </section>
-      <aside class="dash-side" id="dash-side" aria-label="Node details"></aside>
+      <aside class="dash-side" id="dash-side" data-i18n-aria="nodeDetails"></aside>
     </div>
 
     <main class="empty" id="empty" hidden></main>
