@@ -1,0 +1,12 @@
+The Kybernate dashboard is installed.
+
+Open it{{ if .Values.ingress.enabled }} at http{{ if .Values.ingress.tlsSecretName }}s{{ end }}://{{ .Values.ingress.host }}/ or{{ end }} through a port forward:
+
+  kubectl -n {{ .Release.Namespace }} port-forward service/{{ include "dashboard.fullname" . }} 8080:{{ .Values.service.port }}
+  open http://localhost:8080
+
+Sign in with a Kubernetes bearer token. For a ServiceAccount that may reserve GPUs:
+
+  kubectl -n {{ .Release.Namespace }} create serviceaccount gpu-admin
+  kubectl create clusterrolebinding gpu-admin --clusterrole=kybernate-editor --serviceaccount={{ .Release.Namespace }}:gpu-admin
+  kubectl -n {{ .Release.Namespace }} create token gpu-admin --duration=8h

@@ -1,0 +1,12 @@
+apiVersion: v2
+name: dashboard
+description: Web dashboard for the GPU inventory and reservations of Kybernate.
+type: application
+home: https://kybernate.io
+icon: https://raw.githubusercontent.com/kybernate/dashboard/main/web/kybernate-mark.svg
+sources:
+  - https://github.com/kybernate/dashboard
+# Overwritten by the release pipeline with the version of the Git tag.
+version: 0.0.0-dev
+# Image tag used when no tag is set in the values. Builds of main are tagged "main".
+appVersion: main

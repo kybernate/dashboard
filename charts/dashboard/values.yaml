@@ -1,0 +1,50 @@
+# Default values for the Kybernate dashboard.
+
+image:
+  repository: ghcr.io/kybernate/dashboard
+  # Defaults to the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# Name of the cluster, shown in the header of the dashboard.
+clusterName: ""
+
+replicas: 1
+
+# The dashboard has no permissions of its own. Users sign in with a
+# Kubernetes bearer token, and every request to the API server carries that
+# token. The pod therefore gets no ServiceAccount token, only the CA of the
+# API server from the ConfigMap kube-root-ca.crt.
+apiServer:
+  # URL of the API server. Empty: the in-cluster address.
+  url: ""
+  # ConfigMap and key with the CA bundle of the API server.
+  caConfigMap: kube-root-ca.crt
+  caKey: ca.crt
+
+service:
+  type: ClusterIP
+  port: 80
+
+# Expose the dashboard through an Ingress. Use TLS: the browser sends the
+# user's token to the dashboard with every request.
+ingress:
+  enabled: false
+  className: ""
+  host: ""
+  annotations: {}
+  # Name of the TLS secret for the host. Empty: no TLS section.
+  tlsSecretName: ""
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    memory: 128Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
