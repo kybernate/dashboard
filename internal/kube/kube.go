@@ -17,6 +17,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -126,6 +127,22 @@ func (c *Client) ListGPUNodes(ctx context.Context, token string) ([]GPUNode, err
 	}
 	slices.SortFunc(out, func(a, b GPUNode) int { return strings.Compare(a.Name, b.Name) })
 	return out, nil
+}
+
+// WatchGPUNodes watches all GPUNodes. The caller stops the watch.
+func (c *Client) WatchGPUNodes(ctx context.Context, token string) (watch.Interface, error) {
+	dyn, err := c.dynamicFor(token)
+	if err != nil {
+		return nil, err
+	}
+	w, err := dyn.Resource(GPUNodes).Watch(ctx, metav1.ListOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, ErrNotInstalled
+		}
+		return nil, mapError(err)
+	}
+	return w, nil
 }
 
 // SetReservation reserves a GPU of a node for Kybernate or releases it, by

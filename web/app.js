@@ -6,10 +6,139 @@
   'use strict';
   const $ = id => document.getElementById(id);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const num = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
   const gib = bytes => (bytes || 0) / 1024 ** 3;
   const POLL_MS = 5000;
   const STALE_MS = 3 * 60 * 1000;
+
+  /* ---------- Language ---------- */
+  const I18N = {
+    en: {
+      signIn: 'Sign in', signOut: 'Sign out', token: 'Token',
+      signInIntro: 'Enter a Kubernetes bearer token. The dashboard acts with this token, so Kubernetes RBAC decides what you can see and change.',
+      tokenHow: 'How do I get a token?',
+      tokenHowText: 'Create a ServiceAccount with access to the GPU inventory and request a token for it:',
+      tokenRoles: '<code>kybernate-editor</code> may reserve GPUs, <code>kybernate-viewer</code> may only look.',
+      nodes: 'Nodes', view: 'View', topology: 'Topology', matrix: 'Matrix', nodeDetails: 'Node details',
+      cluster: 'Cluster', readOnly: 'read only', language: 'Language',
+      live: 'Live', reconnecting: 'Reconnecting…', polling: 'Refresh every 5 s',
+      kpiPool: 'GPUs in the Kybernate pool', kpiVram: 'VRAM in the pool', kpiPending: 'reservations pending',
+      kpiHeld: 'GPUs held by pods', kpiNodes: 'GPU nodes', kpiAttention: 'nodes need attention',
+      noGpu: 'no GPUs', singleGpu: 'Single GPU', noGpuLabel: 'No GPU', oneGpu: 'one GPU', noGpusFound: 'no GPUs found',
+      nvAll: 'NVLink all-to-all', nvAllDesc: 'every GPU connected to every other through NVLink',
+      nvPairs: n => `NVLink between ${n} GPU pair${n > 1 ? 's' : ''}`, otherwise: x => `${x} otherwise`,
+      pcieSys: 'PCIe across CPU sockets', pcieHb: 'PCIe through the CPU host bridge', pcieSw: 'PCIe through a switch',
+      p2pPossible: 'P2P possible', noP2p: 'no P2P', p2pOverPcie: 'P2P over PCIe', pcieSwitch: 'PCIe switch',
+      inPool: n => `${n} in the pool`, pendingN: n => `${n} pending`,
+      stFree: 'Free', stRegular: 'Pod', stReserved: 'Kybernate', stPending: 'Pending',
+      tagMig: 'MIG', tagKyb: 'KYBERNATE', tagPending: 'PENDING', tagPod: 'POD', tagFree: 'FREE',
+      legendPool: 'Kybernate pool', legendPending: 'Reservation pending', legendRegular: 'Regular pods',
+      mxNote: 'In the style of <code>nvidia-smi topo -m</code> · NV# = NVLink with # links · PIX = through PCIe switches · PHB = through the CPU host bridge · SYS = across CPU sockets · hover a cell for P2P support',
+      mxNv: n => `NVLink with ${n} links`, mxPix: 'PCIe switch', mxPhb: 'CPU host bridge', mxSys: 'across CPU sockets',
+      p2pYes: 'P2P supported', p2pNo: 'no P2P',
+      cardMore: n => `+${n} more`, cardJoins: 'Joins the Kybernate pool once the pod has ended.',
+      cardInPool: 'In the Kybernate pool', cardFree: 'Free for regular pods',
+      cardProcs: n => `${n} process${n > 1 ? 'es' : ''} on the GPU`, cardMig: 'MIG enabled · not offered as a whole GPU',
+      vram: (u, t) => `${u} / ${t} GiB VRAM`,
+      reserve: 'Reserve for Kybernate', reserved: 'Reserved for Kybernate', saving: 'Saving…',
+      whyRelease: 'Return the GPU to regular pods', whyReserve: 'Reserve the GPU for Kybernate',
+      whyReadOnly: 'Read only: changing reservations needs the role kybernate-editor',
+      whyMig: 'Kybernate does not support MIG yet', whyHeld: p => `Reserve now: the GPU joins the pool once ${p} has ended`,
+      sideNode: 'Node', sideDriver: 'Driver', sideCuda: 'CUDA', sideInventory: 'Inventory', sideAgent: 'Agent',
+      sidePlugin: 'Device plugin', sideCdi: 'CDI', sideReady: 'ready', sideNoReport: 'no report', sideOff: 'off',
+      sidePods: 'Pods on GPUs', sideNoPods: 'No pod holds a GPU of this node.',
+      sidePendingGpus: g => `reserved, released when the pod ends: GPU ${g}`,
+      ago: s => s < 60 ? `${s} s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`, never: 'never',
+      issueNoReport: 'The node agent has not reported an inventory yet.',
+      issueInventory: (r, m) => `The last inventory failed (${r}): ${m}`,
+      issueStale: a => `The inventory was last refreshed ${a}. Is the node agent running? Check: kubectl -n kybernate-system get pods -o wide`,
+      issueConflict: 'Another device plugin, usually NVIDIA’s, serves nvidia.com/gpu on this node. Kybernate does not offer the GPUs until it is removed. With K3s: kubectl -n kube-system delete helmchart nvidia-device-plugin',
+      issuePlugin: (r, m) => `The device plugin is not registered with the kubelet (${r}): ${m}`,
+      issueCdi: m => `The CDI specification is incomplete, so GPUs cannot be handed to pods: ${m}`,
+      issueMig: g => `GPU ${g} has MIG enabled and is not offered.`,
+      issuesTitle: 'This node needs attention',
+      msgReservedHeld: (g, n, p) => `GPU ${g} on ${n} is reserved. It joins the Kybernate pool once ${p} has ended.`,
+      msgReserved: (g, n) => `GPU ${g} on ${n} is now in the Kybernate pool. Regular pods no longer get it.`,
+      msgReleased: (g, n) => `GPU ${g} on ${n} is available to regular pods again.`,
+      msgFailed: (g, e) => `GPU ${g} could not be changed: ${e}`,
+      sessionEnded: 'Your session has ended. Sign in again.',
+      emptyTitle: 'No GPU nodes yet',
+      emptyText: 'Kybernate’s node agent creates a GPUNode for every node labelled <code>nvidia.com/gpu.present=true</code>. Check that Kybernate is installed and the agent runs: <code>kubectl -n kybernate-system get pods</code>.',
+      noAccess: 'No access to the GPU inventory', notInstalled: 'Kybernate is not installed',
+      topoLabel: n => `Topology of ${n}`, matrixLabel: 'GPU connection matrix',
+    },
+    de: {
+      signIn: 'Anmelden', signOut: 'Abmelden', token: 'Token',
+      signInIntro: 'Gib einen Kubernetes-Bearer-Token ein. Das Dashboard handelt mit diesem Token, Kubernetes-RBAC entscheidet also, was du sehen und ändern darfst.',
+      tokenHow: 'Wie bekomme ich einen Token?',
+      tokenHowText: 'Lege einen ServiceAccount mit Zugriff auf das GPU-Inventar an und fordere einen Token dafür an:',
+      tokenRoles: '<code>kybernate-editor</code> darf GPUs reservieren, <code>kybernate-viewer</code> nur ansehen.',
+      nodes: 'Nodes', view: 'Ansicht', topology: 'Topologie', matrix: 'Matrix', nodeDetails: 'Node-Details',
+      cluster: 'Cluster', readOnly: 'nur lesen', language: 'Sprache',
+      live: 'Live', reconnecting: 'Verbinde neu …', polling: 'Abfrage alle 5 s',
+      kpiPool: 'GPUs im Kybernate-Pool', kpiVram: 'VRAM im Pool', kpiPending: 'wartende Reservierungen',
+      kpiHeld: 'GPUs von Pods belegt', kpiNodes: 'GPU-Nodes', kpiAttention: 'Nodes mit Problemen',
+      noGpu: 'keine GPUs', singleGpu: 'Eine GPU', noGpuLabel: 'Keine GPU', oneGpu: 'eine GPU', noGpusFound: 'keine GPUs gefunden',
+      nvAll: 'NVLink alle-zu-allen', nvAllDesc: 'jede GPU über NVLink mit jeder anderen verbunden',
+      nvPairs: n => `NVLink zwischen ${n} GPU-${n > 1 ? 'Paaren' : 'Paar'}`, otherwise: x => `sonst ${x}`,
+      pcieSys: 'PCIe über CPU-Sockel hinweg', pcieHb: 'PCIe über die Host Bridge der CPU', pcieSw: 'PCIe über einen Switch',
+      p2pPossible: 'P2P möglich', noP2p: 'kein P2P', p2pOverPcie: 'P2P über PCIe', pcieSwitch: 'PCIe-Switch',
+      inPool: n => `${n} im Pool`, pendingN: n => `${n} wartend`,
+      stFree: 'Frei', stRegular: 'Pod', stReserved: 'Kybernate', stPending: 'Wartet',
+      tagMig: 'MIG', tagKyb: 'KYBERNATE', tagPending: 'WARTET', tagPod: 'POD', tagFree: 'FREI',
+      legendPool: 'Kybernate-Pool', legendPending: 'Reservierung wartet', legendRegular: 'Reguläre Pods',
+      mxNote: 'Im Stil von <code>nvidia-smi topo -m</code> · NV# = NVLink mit # Links · PIX = über PCIe-Switches · PHB = über die Host Bridge der CPU · SYS = über CPU-Sockel hinweg · Zelle zeigt beim Überfahren, ob P2P geht',
+      mxNv: n => `NVLink mit ${n} Links`, mxPix: 'PCIe-Switch', mxPhb: 'Host Bridge der CPU', mxSys: 'über CPU-Sockel hinweg',
+      p2pYes: 'P2P möglich', p2pNo: 'kein P2P',
+      cardMore: n => `+${n} weitere`, cardJoins: 'Kommt in den Kybernate-Pool, sobald der Pod beendet ist.',
+      cardInPool: 'Im Kybernate-Pool', cardFree: 'Frei für reguläre Pods',
+      cardProcs: n => `${n} ${n > 1 ? 'Prozesse' : 'Prozess'} auf der GPU`, cardMig: 'MIG aktiv · wird nicht als ganze GPU angeboten',
+      vram: (u, t) => `${u} / ${t} GiB VRAM`,
+      reserve: 'Für Kybernate reservieren', reserved: 'Für Kybernate reserviert', saving: 'Speichert …',
+      whyRelease: 'GPU an reguläre Pods zurückgeben', whyReserve: 'GPU für Kybernate reservieren',
+      whyReadOnly: 'Nur lesen: Reservierungen ändern erfordert die Rolle kybernate-editor',
+      whyMig: 'Kybernate unterstützt MIG noch nicht', whyHeld: p => `Jetzt reservieren: Die GPU kommt in den Pool, sobald ${p} beendet ist`,
+      sideNode: 'Node', sideDriver: 'Treiber', sideCuda: 'CUDA', sideInventory: 'Inventar', sideAgent: 'Agent',
+      sidePlugin: 'Device-Plugin', sideCdi: 'CDI', sideReady: 'bereit', sideNoReport: 'keine Meldung', sideOff: 'aus',
+      sidePods: 'Pods auf GPUs', sideNoPods: 'Kein Pod belegt eine GPU dieses Nodes.',
+      sidePendingGpus: g => `reserviert, frei sobald der Pod endet: GPU ${g}`,
+      ago: s => s < 60 ? `vor ${s} s` : s < 3600 ? `vor ${Math.round(s / 60)} min` : `vor ${Math.round(s / 3600)} h`, never: 'nie',
+      issueNoReport: 'Der Node-Agent hat noch kein Inventar gemeldet.',
+      issueInventory: (r, m) => `Das letzte Inventar ist fehlgeschlagen (${r}): ${m}`,
+      issueStale: a => `Das Inventar wurde zuletzt ${a} aktualisiert. Läuft der Node-Agent? Prüfen: kubectl -n kybernate-system get pods -o wide`,
+      issueConflict: 'Ein anderes Device-Plugin, meist das von NVIDIA, bietet auf diesem Node nvidia.com/gpu an. Kybernate bietet die GPUs erst an, wenn es entfernt ist. Bei K3s: kubectl -n kube-system delete helmchart nvidia-device-plugin',
+      issuePlugin: (r, m) => `Das Device-Plugin ist nicht beim Kubelet registriert (${r}): ${m}`,
+      issueCdi: m => `Die CDI-Spezifikation ist unvollständig, GPUs können nicht an Pods gegeben werden: ${m}`,
+      issueMig: g => `Auf GPU ${g} ist MIG aktiv, sie wird nicht angeboten.`,
+      issuesTitle: 'Dieser Node braucht Aufmerksamkeit',
+      msgReservedHeld: (g, n, p) => `GPU ${g} auf ${n} ist reserviert. Sie kommt in den Kybernate-Pool, sobald ${p} beendet ist.`,
+      msgReserved: (g, n) => `GPU ${g} auf ${n} ist jetzt im Kybernate-Pool. Reguläre Pods bekommen sie nicht mehr.`,
+      msgReleased: (g, n) => `GPU ${g} auf ${n} steht regulären Pods wieder zur Verfügung.`,
+      msgFailed: (g, e) => `GPU ${g} konnte nicht geändert werden: ${e}`,
+      sessionEnded: 'Deine Sitzung ist abgelaufen. Bitte melde dich neu an.',
+      emptyTitle: 'Noch keine GPU-Nodes',
+      emptyText: 'Der Node-Agent von Kybernate legt für jeden Node mit dem Label <code>nvidia.com/gpu.present=true</code> einen GPUNode an. Prüfe, ob Kybernate installiert ist und der Agent läuft: <code>kubectl -n kybernate-system get pods</code>.',
+      noAccess: 'Kein Zugriff auf das GPU-Inventar', notInstalled: 'Kybernate ist nicht installiert',
+      topoLabel: n => `Topologie von ${n}`, matrixLabel: 'Verbindungsmatrix der GPUs',
+    },
+  };
+  const storage = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode */ } },
+  };
+  let lang = storage.get('kybernate-lang') || ((navigator.language || 'en').toLowerCase().startsWith('de') ? 'de' : 'en');
+  let num = new Intl.NumberFormat(lang, { maximumFractionDigits: 1 });
+  const t = (key, ...args) => {
+    const v = (I18N[lang] && I18N[lang][key]) ?? I18N.en[key];
+    return typeof v === 'function' ? v(...args) : v;
+  };
+  function applyStaticTexts() {
+    document.documentElement.lang = lang;
+    for (const el of document.querySelectorAll('[data-i18n]')) el.textContent = t(el.dataset.i18n);
+    for (const el of document.querySelectorAll('[data-i18n-html]')) el.innerHTML = t(el.dataset.i18nHtml);
+    for (const el of document.querySelectorAll('[data-i18n-aria]')) el.setAttribute('aria-label', t(el.dataset.i18nAria));
+    $('lang').textContent = lang === 'de' ? 'EN' : 'DE';
+    $('lang').title = t('language');
+  }
 
   const state = {
     session: null,
@@ -21,6 +150,8 @@
     busy: new Set(),
     lastJSON: '',
     timer: null,
+    events: null,
+    live: 'off', // off | live | reconnecting | polling
   };
 
   /* ---------- API ---------- */
@@ -49,6 +180,7 @@
   const reservedIn = node => new Set((node.spec && node.spec.reservedGPUs) || []);
   const podName = p => `${p.namespace}/${p.name}`;
   const shortName = name => String(name || 'GPU').replace(/^NVIDIA\s+/, '');
+  const condition = (node, type) => ((node.status && node.status.conditions) || []).find(c => c.type === type);
 
   function role(node, gpu) {
     const reserved = reservedIn(node).has(gpu.uuid);
@@ -62,15 +194,15 @@
   }
 
   function pcieDesc(types) {
-    if (types.has('System')) return 'PCIe across CPU sockets';
-    if (types.has('PCIeHostBridge')) return 'PCIe through the CPU host bridge';
-    return 'PCIe through a switch';
+    if (types.has('System')) return t('pcieSys');
+    if (types.has('PCIeHostBridge')) return t('pcieHb');
+    return t('pcieSw');
   }
 
   // How the GPUs of a node are connected, in the categories of the draft.
   function fabric(node) {
     const g = gpusOf(node);
-    if (g.length < 2) return { key: 'single', label: g.length ? 'Single GPU' : 'No GPU', desc: g.length ? 'one GPU' : 'no GPUs found', other: new Set() };
+    if (g.length < 2) return { key: 'single', label: g.length ? t('singleGpu') : t('noGpuLabel'), desc: g.length ? t('oneGpu') : t('noGpusFound'), other: new Set() };
     let pairs = 0, nv = 0, p2p = true;
     const other = new Set();
     for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) {
@@ -80,15 +212,15 @@
       if (type === 'NVLink') nv++;
       else { other.add(type); if (!(l && l.p2p)) p2p = false; }
     }
-    if (nv === pairs && g.length > 2) return { key: 'nvswitch', label: 'NVLink all-to-all', desc: 'every GPU connected to every other through NVLink', other };
-    if (nv > 0) return { key: 'pairs', label: 'NVLink', desc: `NVLink between ${nv} GPU pair${nv > 1 ? 's' : ''}${other.size ? ', ' + pcieDesc(other) + ' otherwise' : ''}`, other };
-    if (other.size === 1 && other.has('PCIeSwitch')) return { key: 'p2p', label: p2p ? 'P2P over PCIe' : 'PCIe switch', desc: `PCIe through a switch${p2p ? ', P2P possible' : ''}`, other };
-    return { key: 'pcie', label: 'PCIe', desc: `${pcieDesc(other)}${p2p ? ', P2P possible' : ', no P2P'}`, other };
+    if (nv === pairs && g.length > 2) return { key: 'nvswitch', label: t('nvAll'), desc: t('nvAllDesc'), other };
+    if (nv > 0) return { key: 'pairs', label: 'NVLink', desc: t('nvPairs', nv) + (other.size ? ', ' + t('otherwise', pcieDesc(other)) : ''), other };
+    if (other.size === 1 && other.has('PCIeSwitch')) return { key: 'p2p', label: p2p ? t('p2pOverPcie') : t('pcieSwitch'), desc: t('pcieSw') + (p2p ? ', ' + t('p2pPossible') : ''), other };
+    return { key: 'pcie', label: 'PCIe', desc: `${pcieDesc(other)}, ${p2p ? t('p2pPossible') : t('noP2p')}`, other };
   }
 
   function summary(node) {
     const g = gpusOf(node);
-    if (!g.length) return 'no GPUs';
+    if (!g.length) return t('noGpu');
     const byName = new Map();
     for (const x of g) byName.set(shortName(x.name), (byName.get(shortName(x.name)) || 0) + 1);
     const total = g.reduce((a, x) => a + gib(x.memoryTotalBytes), 0);
@@ -96,20 +228,26 @@
   }
 
   function ago(ts) {
-    if (!ts) return 'never';
-    const s = Math.max(0, Math.round((Date.now() - Date.parse(ts)) / 1000));
-    if (s < 60) return `${s} s ago`;
-    if (s < 3600) return `${Math.round(s / 60)} min ago`;
-    return `${Math.round(s / 3600)} h ago`;
+    if (!ts) return t('never');
+    return t('ago', Math.max(0, Math.round((Date.now() - Date.parse(ts)) / 1000)));
   }
 
-  function nodeIssue(node) {
+  // Everything that keeps a node from working as expected, most severe first.
+  function issues(node) {
     const st = node.status || {};
-    if (!st.lastInventoryTime) return 'The node agent has not reported an inventory yet.';
-    const cond = (st.conditions || []).find(c => c.type === 'InventoryReady');
-    if (cond && cond.status === 'False') return `The last inventory failed (${cond.reason}): ${cond.message}`;
-    if (Date.now() - Date.parse(st.lastInventoryTime) > STALE_MS) return `The inventory was last refreshed ${ago(st.lastInventoryTime)}. Is the node agent running?`;
-    return '';
+    const out = [];
+    if (!st.lastInventoryTime) return [t('issueNoReport')];
+    const inv = condition(node, 'InventoryReady');
+    if (inv && inv.status === 'False') out.push(t('issueInventory', inv.reason, inv.message));
+    if (Date.now() - Date.parse(st.lastInventoryTime) > STALE_MS) out.push(t('issueStale', ago(st.lastInventoryTime)));
+    const plugin = condition(node, 'DevicePluginReady');
+    if (plugin && plugin.status === 'False') {
+      out.push(plugin.reason === 'ConflictingPlugin' ? t('issueConflict') : t('issuePlugin', plugin.reason, plugin.message));
+    }
+    const cdi = condition(node, 'CDIReady');
+    if (cdi && cdi.status === 'False') out.push(t('issueCdi', cdi.message));
+    for (const g of gpusOf(node)) if (g.migEnabled) out.push(t('issueMig', g.index));
+    return out;
   }
 
   const selNode = () => state.nodes.find(n => n.name === state.sel);
@@ -117,43 +255,53 @@
   /* ---------- Rendering ---------- */
   function renderHeader() {
     const s = state.session;
-    $('cluster').innerHTML = s && s.clusterName ? `Cluster <code>${esc(s.clusterName)}</code>` : '';
-    $('user').hidden = !s;
+    $('cluster').innerHTML = s && s.clusterName ? `${esc(t('cluster'))} <code>${esc(s.clusterName)}</code>` : '';
+    $('user-name').hidden = !s;
+    $('logout').hidden = !s;
     if (s) {
       $('user-name').textContent = s.user.username;
-      $('user-name').title = `${s.user.username}${s.access.reserve ? '' : ' · read only'}`;
+      $('user-name').title = `${s.user.username}${s.access.reserve ? '' : ' · ' + t('readOnly')}`;
     }
+    const live = $('live');
+    live.hidden = !s || state.live === 'off';
+    live.className = `live ${state.live}`;
+    live.textContent = { live: t('live'), reconnecting: t('reconnecting'), polling: t('polling') }[state.live] || '';
   }
 
   function renderKpis() {
-    let total = 0, pool = 0, poolMem = 0, pending = 0, held = 0;
-    for (const n of state.nodes) for (const g of gpusOf(n)) {
-      const r = role(n, g);
-      total++;
-      if (r.st === 'Reserved') { pool++; poolMem += gib(g.memoryTotalBytes); }
-      if (r.st === 'PendingReservation') pending++;
-      if (r.pods.length) held++;
+    let total = 0, pool = 0, poolMem = 0, pending = 0, held = 0, attention = 0;
+    for (const n of state.nodes) {
+      if (issues(n).length) attention++;
+      for (const g of gpusOf(n)) {
+        const r = role(n, g);
+        total++;
+        if (r.st === 'Reserved') { pool++; poolMem += gib(g.memoryTotalBytes); }
+        if (r.st === 'PendingReservation') pending++;
+        if (r.pods.length) held++;
+      }
     }
-    $('dash-kpis').innerHTML = [
-      [`${pool} / ${total}`, 'GPUs in the Kybernate pool'],
-      [`${num.format(poolMem)} GiB`, 'VRAM in the pool'],
-      [`${pending}`, 'reservations pending', pending ? 'hot' : ''],
-      [`${held}`, 'GPUs held by pods'],
-      [`${state.nodes.length}`, 'GPU nodes'],
-    ].map(([b, s, c]) => `<div class="kpi ${c || ''}"><b>${esc(b)}</b><small>${esc(s)}</small></div>`).join('');
+    const kpis = [
+      [`${pool} / ${total}`, t('kpiPool')],
+      [`${num.format(poolMem)} GiB`, t('kpiVram')],
+      [`${pending}`, t('kpiPending'), pending ? 'hot' : ''],
+      [`${held}`, t('kpiHeld')],
+      [`${state.nodes.length}`, t('kpiNodes')],
+    ];
+    if (attention) kpis.push([`${attention}`, t('kpiAttention'), 'alert']);
+    $('dash-kpis').innerHTML = kpis.map(([b, s, c]) => `<div class="kpi ${c || ''}"><b>${esc(b)}</b><small>${esc(s)}</small></div>`).join('');
   }
 
   function renderNodes() {
-    $('dash-nodes').innerHTML = '<p class="cap">Nodes</p>' + state.nodes.map(n => {
+    $('dash-nodes').innerHTML = `<p class="cap">${esc(t('nodes'))}</p>` + state.nodes.map(n => {
       const f = fabric(n);
       const bars = gpusOf(n).map(g => {
         const r = role(n, g);
         const cls = r.st === 'Reserved' ? 'k' : r.st === 'PendingReservation' ? 'p' : r.pods.length ? 'b' : '';
         return `<i class="${cls}" title="GPU ${g.index}: ${esc(r.st)}"></i>`;
       }).join('');
-      const issue = nodeIssue(n);
-      return `<button type="button" class="node-btn" data-node="${esc(n.name)}" aria-pressed="${n.name === state.sel}">
-        <b>${issue ? `<span class="dot" title="${esc(issue)}"></span>` : ''}${esc(n.name)}</b>
+      const problems = issues(n);
+      return `<button type="button" class="node-btn${problems.length ? ' problem' : ''}" data-node="${esc(n.name)}" aria-pressed="${n.name === state.sel}">
+        <b>${problems.length ? `<span class="dot" title="${esc(problems[0])}"></span>` : ''}${esc(n.name)}</b>
         <small>${esc(summary(n))}</small>
         <span class="fab fab-${f.key}">${esc(f.label)}</span>
         <span class="mini-bar" aria-hidden="true">${bars}</span>
@@ -163,7 +311,7 @@
 
   function topoSvg(node) {
     const g = gpusOf(node), n = g.length, f = fabric(node);
-    if (!n) return '<p class="side-empty">No GPUs reported.</p>';
+    if (!n) return `<p class="side-empty">${esc(t('noGpusFound'))}</p>`;
     // The drawing grows with the number of GPUs and only shrinks to fit.
     const W = Math.max(440, n * 124 + 40), H = 262, gap = 14;
     const cw = Math.min(110, (W - 40 - (n - 1) * gap) / n);
@@ -171,11 +319,10 @@
     const x0 = (W - totalW) / 2;
     const X = i => x0 + i * (cw + gap);
     const gy = 56, gh = 104, busY = 226;
-    let s = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Topology of ${esc(node.name)}">`;
+    let s = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(t('topoLabel', node.name))}">`;
 
-    // Connections below the GPUs
     if (f.key === 'nvswitch') {
-      s += `<rect x="${x0}" y="${busY - 14}" width="${totalW}" height="28" rx="8" fill="#2e365f"/><text x="${W / 2}" y="${busY + 5}" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">NVLink · all-to-all</text>`;
+      s += `<rect x="${x0}" y="${busY - 14}" width="${totalW}" height="28" rx="8" fill="#2e365f"/><text x="${W / 2}" y="${busY + 5}" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">${esc(t('nvAll'))}</text>`;
       for (let i = 0; i < n; i++) s += `<line x1="${X(i) + cw / 2}" y1="${gy + gh}" x2="${X(i) + cw / 2}" y2="${busY - 14}" stroke="#2e365f" stroke-width="5" stroke-linecap="round"/>`;
     } else if (f.key === 'p2p') {
       s += `<rect x="${W / 2 - 120}" y="${busY - 14}" width="240" height="28" rx="8" fill="#eff0f4" stroke="#9aa0b6"/><text x="${W / 2}" y="${busY + 5}" text-anchor="middle" fill="#55597a" font-size="12" font-weight="700">${esc(f.label)}</text>`;
@@ -186,7 +333,6 @@
       for (let i = 0; i < n; i++) s += `<line x1="${X(i) + cw / 2}" y1="${gy + gh}" x2="${X(i) + cw / 2}" y2="${busY}" stroke="#b8bccb" stroke-width="2"/>`;
     }
 
-    // NVLink arcs between individual GPUs
     if (f.key === 'pairs') {
       for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
         const l = linkOf(g[i], g[j]);
@@ -197,7 +343,6 @@
       }
     }
 
-    // GPUs
     for (let i = 0; i < n; i++) {
       const gpu = g[i], x = X(i), r = role(node, gpu);
       const total = gib(gpu.memoryTotalBytes), used = gib(gpu.memoryUsedBytes);
@@ -206,11 +351,11 @@
       const fill = kyb ? '#f4f5fb' : pend ? '#fffaf5' : '#f7f7f9';
       const stroke = kyb ? '#2e365f' : pend ? '#f0913f' : '#b8bccb';
       const dash = kyb ? '' : 'stroke-dasharray="5 4"';
-      const tag = gpu.migEnabled ? 'MIG' : kyb ? 'KYBERNATE' : pend ? 'PENDING' : r.pods.length ? 'POD' : 'FREE';
+      const tag = gpu.migEnabled ? t('tagMig') : kyb ? t('tagKyb') : pend ? t('tagPending') : r.pods.length ? t('tagPod') : t('tagFree');
       s += `<g>
         <rect x="${x}" y="${gy}" width="${cw}" height="${gh}" rx="9" fill="${fill}" stroke="${stroke}" stroke-width="${kyb || pend ? 2.2 : 1.6}" ${dash}/>
         <text x="${x + cw / 2}" y="${gy + 20}" text-anchor="middle" font-size="12.5" font-weight="800">GPU ${gpu.index}</text>
-        <text x="${x + cw / 2}" y="${gy + 37}" text-anchor="middle" font-size="9.5" fill="#5b6290" font-family="ui-monospace, Menlo, monospace">${tag}</text>
+        <text x="${x + cw / 2}" y="${gy + 37}" text-anchor="middle" font-size="9.5" fill="#5b6290" font-family="ui-monospace, Menlo, monospace">${esc(tag)}</text>
         <rect x="${x + 9}" y="${gy + 50}" width="${cw - 18}" height="8" rx="4" fill="#e4e6f0"/>
         <rect x="${x + 9}" y="${gy + 50}" width="${Math.max(2, (cw - 18) * frac)}" height="8" rx="4" fill="${kyb ? '#2e365f' : '#9aa0b6'}"/>
         <text x="${x + cw / 2}" y="${gy + 76}" text-anchor="middle" font-size="10.5" fill="#1d2347" font-family="ui-monospace, Menlo, monospace">${num.format(used)}/${num.format(total)}G</text>
@@ -224,13 +369,13 @@
     s += '</svg>';
 
     const legend = {
-      nvswitch: '<span><i class="sw"></i>NVLink all-to-all</span>',
+      nvswitch: `<span><i class="sw"></i>${esc(t('nvAll'))}</span>`,
       pairs: '<span><i></i>NVLink</span><span><i class="pcie"></i>PCIe</span>',
-      p2p: '<span><i class="p2p"></i>PCIe switch</span>',
+      p2p: `<span><i class="p2p"></i>${esc(t('pcieSwitch'))}</span>`,
       pcie: '<span><i class="pcie"></i>PCIe</span>',
       single: '',
     }[f.key];
-    return s + `<div class="topo-legend">${legend}<span><i class="box"></i>Kybernate pool</span><span><i class="box pend"></i>Reservation pending</span><span><i class="box k8s"></i>Regular pods</span></div>`;
+    return s + `<div class="topo-legend">${legend}<span><i class="box"></i>${esc(t('legendPool'))}</span><span><i class="box pend"></i>${esc(t('legendPending'))}</span><span><i class="box k8s"></i>${esc(t('legendRegular'))}</span></div>`;
   }
 
   function matrix(node) {
@@ -238,18 +383,18 @@
     const code = (a, b) => {
       if (a === b) return ['X', 'x', ''];
       const l = linkOf(a, b);
-      const p2p = l && l.p2p ? 'P2P supported' : 'no P2P';
+      const p2p = l && l.p2p ? t('p2pYes') : t('p2pNo');
       switch (l && l.type) {
-        case 'NVLink': return [`NV${l.nvlinks || ''}`, 'nv', `NVLink with ${l.nvlinks || '?'} links · ${p2p}`];
-        case 'PCIeSwitch': return ['PIX', 'pix', `PCIe switch · ${p2p}`];
-        case 'PCIeHostBridge': return ['PHB', 'phb', `CPU host bridge · ${p2p}`];
-        default: return ['SYS', 'sys', `across CPU sockets · ${p2p}`];
+        case 'NVLink': return [`NV${l.nvlinks || ''}`, 'nv', `${t('mxNv', l.nvlinks || '?')} · ${p2p}`];
+        case 'PCIeSwitch': return ['PIX', 'pix', `${t('mxPix')} · ${p2p}`];
+        case 'PCIeHostBridge': return ['PHB', 'phb', `${t('mxPhb')} · ${p2p}`];
+        default: return ['SYS', 'sys', `${t('mxSys')} · ${p2p}`];
       }
     };
-    let h = '<table aria-label="GPU connection matrix"><thead><tr><th></th>' + g.map(x => `<th scope="col">GPU${x.index}</th>`).join('') + '</tr></thead><tbody>';
-    for (const a of g) h += `<tr><th scope="row">GPU${a.index}</th>` + g.map(b => { const [c, k, t] = code(a, b); return `<td class="${k}" title="${esc(t)}">${c}</td>`; }).join('') + '</tr>';
+    let h = `<table aria-label="${esc(t('matrixLabel'))}"><thead><tr><th></th>` + g.map(x => `<th scope="col">GPU${x.index}</th>`).join('') + '</tr></thead><tbody>';
+    for (const a of g) h += `<tr><th scope="row">GPU${a.index}</th>` + g.map(b => { const [c, k, ti] = code(a, b); return `<td class="${k}" title="${esc(ti)}">${c}</td>`; }).join('') + '</tr>';
     h += '</tbody></table>';
-    h += '<p class="mx-note">In the style of <code>nvidia-smi topo -m</code> · NV# = NVLink with # links · PIX = through PCIe switches · PHB = through the CPU host bridge · SYS = across CPU sockets · hover a cell for P2P support</p>';
+    h += `<p class="mx-note">${t('mxNote')}</p>`;
     return h;
   }
 
@@ -257,34 +402,34 @@
     const r = role(node, gpu);
     const total = gib(gpu.memoryTotalBytes), used = gib(gpu.memoryUsedBytes);
     const cls = r.st === 'Reserved' ? 'kyb' : r.st === 'PendingReservation' ? 'pending' : r.pods.length ? 'busy' : '';
-    const badge = { Reserved: 'Kybernate', PendingReservation: 'Pending', Regular: 'Pod', Free: 'Free' }[r.st] || r.st;
+    const badge = { Reserved: t('stReserved'), PendingReservation: t('stPending'), Regular: t('stRegular'), Free: t('stFree') }[r.st] || r.st;
 
     let pod;
     if (r.pods.length) {
       const first = r.pods[0];
-      pod = `<b>${esc(podName(first))}</b>${first.container ? ' · ' + esc(first.container) : ''}${r.pods.length > 1 ? ` · +${r.pods.length - 1} more` : ''}`;
-      if (r.st === 'PendingReservation') pod += '<br>Joins the Kybernate pool once the pod has ended.';
+      pod = `<b>${esc(podName(first))}</b>${first.container ? ' · ' + esc(first.container) : ''}${r.pods.length > 1 ? ' · ' + esc(t('cardMore', r.pods.length - 1)) : ''}`;
+      if (r.st === 'PendingReservation') pod += `<br>${esc(t('cardJoins'))}`;
     } else {
-      pod = r.st === 'Reserved' ? 'In the Kybernate pool' : 'Free for regular pods';
+      pod = esc(r.st === 'Reserved' ? t('cardInPool') : t('cardFree'));
     }
-    if (gpu.processCount) pod += `<br>${gpu.processCount} process${gpu.processCount > 1 ? 'es' : ''} on the GPU`;
-    if (gpu.migEnabled) pod += '<br>MIG enabled · not offered as a whole GPU';
+    if (gpu.processCount) pod += `<br>${esc(t('cardProcs', gpu.processCount))}`;
+    if (gpu.migEnabled) pod += `<br>${esc(t('cardMig'))}`;
 
     const canReserve = state.session && state.session.access.reserve;
     const busy = state.busy.has(gpu.uuid);
-    let why = r.reserved ? 'Return the GPU to regular pods' : 'Reserve the GPU for Kybernate';
+    let why = r.reserved ? t('whyRelease') : t('whyReserve');
     let disabled = '';
-    if (!canReserve) { disabled = 'disabled'; why = 'Read only: changing reservations needs the role kybernate-editor'; }
-    else if (gpu.migEnabled && !r.reserved) { disabled = 'disabled'; why = 'Kybernate does not support MIG yet'; }
+    if (!canReserve) { disabled = 'disabled'; why = t('whyReadOnly'); }
+    else if (gpu.migEnabled && !r.reserved) { disabled = 'disabled'; why = t('whyMig'); }
     else if (busy) disabled = 'disabled';
-    else if (!r.reserved && r.pods.length) why = `Reserve now: the GPU joins the pool once ${podName(r.pods[0])} has ended`;
+    else if (!r.reserved && r.pods.length) why = t('whyHeld', podName(r.pods[0]));
 
     return `<div class="gcard ${cls}">
       <div class="gcard-h"><b>GPU ${gpu.index}</b><span class="pool-badge">${esc(badge)}</span></div>
       <div class="gcard-name">${esc(shortName(gpu.name))}${gpu.architecture ? ' · ' + esc(gpu.architecture) : ''}</div>
-      <div><span class="vram">${num.format(used)} / ${num.format(total)} GiB VRAM</span><div class="vram-bar"><span data-w="${total ? (used / total * 100).toFixed(1) : 0}"></span></div></div>
+      <div><span class="vram">${esc(t('vram', num.format(used), num.format(total)))}</span><div class="vram-bar"><span data-w="${total ? (used / total * 100).toFixed(1) : 0}"></span></div></div>
       <div class="gcard-pod">${pod}</div>
-      <label class="switch" title="${esc(why)}"><input type="checkbox" data-uuid="${esc(gpu.uuid)}" ${r.reserved ? 'checked' : ''} ${disabled}><span>${busy ? 'Saving…' : r.reserved ? 'Reserved for Kybernate' : 'Reserve for Kybernate'}</span></label>
+      <label class="switch" title="${esc(why)}"><input type="checkbox" data-uuid="${esc(gpu.uuid)}" ${r.reserved ? 'checked' : ''} ${disabled}><span>${esc(busy ? t('saving') : r.reserved ? t('reserved') : t('reserve'))}</span></label>
     </div>`;
   }
 
@@ -295,10 +440,12 @@
     const pool = g.filter(x => role(node, x).st === 'Reserved').length;
     const pending = g.filter(x => role(node, x).st === 'PendingReservation').length;
     $('dash-node-name').textContent = node.name;
-    $('dash-node-desc').textContent = `${summary(node)} · ${f.desc} · ${pool} in the pool${pending ? `, ${pending} pending` : ''}`;
-    const issue = nodeIssue(node);
-    $('dash-warn').hidden = !issue;
-    $('dash-warn').textContent = issue;
+    $('dash-node-desc').textContent = `${summary(node)} · ${f.desc} · ${t('inPool', pool)}${pending ? ', ' + t('pendingN', pending) : ''}`;
+    const problems = issues(node);
+    $('dash-warn').hidden = !problems.length;
+    $('dash-warn').innerHTML = problems.length
+      ? `<b>${esc(t('issuesTitle'))}</b><ul>${problems.map(p => `<li>${esc(p)}</li>`).join('')}</ul>`
+      : '';
     for (const b of document.querySelectorAll('[data-view]')) b.setAttribute('aria-pressed', b.dataset.view === state.view);
     $('dash-topo').hidden = state.view !== 'topo';
     $('dash-matrix').hidden = state.view !== 'matrix';
@@ -310,17 +457,25 @@
     $('dash-msg').classList.toggle('error', state.msgError);
   }
 
+  function condCell(node, type) {
+    const c = condition(node, type);
+    if (!c) return `<dd>${esc(t('sideOff'))}</dd>`;
+    return c.status === 'True' ? `<dd>${esc(t('sideReady'))}</dd>` : `<dd class="bad">${esc(c.reason)}</dd>`;
+  }
+
   function renderSide() {
     const node = selNode();
     if (!node) return;
     const st = node.status || {};
-    const cond = (st.conditions || []).find(c => c.type === 'InventoryReady');
-    const agentOK = cond ? cond.status === 'True' : !!st.lastInventoryTime;
-    let h = `<h4>Node</h4><dl class="info">
-      <dt>Driver</dt><dd>${esc(st.driverVersion || '–')}</dd>
-      <dt>CUDA</dt><dd>${esc(st.cudaDriverVersion || '–')}</dd>
-      <dt>Inventory</dt><dd>${esc(ago(st.lastInventoryTime))}</dd>
-      <dt>Agent</dt><dd class="${agentOK ? '' : 'bad'}">${agentOK ? 'ready' : esc(cond ? cond.reason : 'no report')}</dd>
+    const inv = condition(node, 'InventoryReady');
+    const agentOK = inv ? inv.status === 'True' : !!st.lastInventoryTime;
+    let h = `<h4>${esc(t('sideNode'))}</h4><dl class="info">
+      <dt>${esc(t('sideDriver'))}</dt><dd>${esc(st.driverVersion || '–')}</dd>
+      <dt>${esc(t('sideCuda'))}</dt><dd>${esc(st.cudaDriverVersion || '–')}</dd>
+      <dt>${esc(t('sideInventory'))}</dt><dd>${esc(ago(st.lastInventoryTime))}</dd>
+      <dt>${esc(t('sideAgent'))}</dt><dd class="${agentOK ? '' : 'bad'}">${esc(agentOK ? t('sideReady') : (inv ? inv.reason : t('sideNoReport')))}</dd>
+      <dt>${esc(t('sidePlugin'))}</dt>${condCell(node, 'DevicePluginReady')}
+      <dt>${esc(t('sideCdi'))}</dt>${condCell(node, 'CDIReady')}
     </dl>`;
 
     const pods = new Map();
@@ -333,12 +488,12 @@
         if (r.st === 'PendingReservation') pods.get(key).pending.push(g.index);
       }
     }
-    h += '<h4>Pods on GPUs</h4>';
-    if (!pods.size) h += '<p class="side-empty">No pod holds a GPU of this node.</p>';
+    h += `<h4>${esc(t('sidePods'))}</h4>`;
+    if (!pods.size) h += `<p class="side-empty">${esc(t('sideNoPods'))}</p>`;
     for (const { p, gpus, pending } of pods.values()) {
       h += `<div class="pcard"><b>${esc(podName(p))}</b>
         <small>${p.container ? esc(p.container) + ' · ' : ''}GPU ${gpus.join(', ')}</small>
-        ${pending.length ? `<small>reserved, released when the pod ends: GPU ${pending.join(', ')}</small>` : ''}
+        ${pending.length ? `<small>${esc(t('sidePendingGpus', pending.join(', ')))}</small>` : ''}
       </div>`;
     }
     $('dash-side').innerHTML = h;
@@ -354,9 +509,10 @@
       else if (active.dataset.view) keep = `[data-view="${CSS.escape(active.dataset.view)}"]`;
     }
     renderHeader();
+    if (!state.session) return;
     renderKpis();
     if (!state.nodes.length) {
-      showEmpty('No GPU nodes yet', 'Kybernate’s node agent creates a GPUNode for every node labelled <code>nvidia.com/gpu.present=true</code>. Check that Kybernate is installed and the agent runs: <code>kubectl -n kybernate-system get pods</code>.');
+      showEmpty(t('emptyTitle'), t('emptyText'));
       return;
     }
     $('empty').hidden = true;
@@ -379,10 +535,11 @@
 
   /* ---------- Views ---------- */
   function showLogin(error = '') {
-    stopPolling();
+    stopUpdates();
     state.session = null;
     state.nodes = [];
     state.lastJSON = '';
+    state.live = 'off';
     renderHeader();
     $('dash-kpis').innerHTML = '';
     $('app').hidden = true;
@@ -402,36 +559,74 @@
     $('login').hidden = true;
     renderHeader();
     await refresh();
-    startPolling();
+    startUpdates();
   }
 
   /* ---------- Data ---------- */
+  function applyItems(items) {
+    const json = JSON.stringify(items);
+    if (json === state.lastJSON) { renderSide(); return; }
+    state.lastJSON = json;
+    state.nodes = items;
+    if (!state.nodes.some(n => n.name === state.sel)) state.sel = state.nodes.length ? state.nodes[0].name : null;
+    render();
+  }
+
   async function refresh() {
     try {
       const data = await api('/api/gpunodes');
-      const items = (data && data.items) || [];
-      const json = JSON.stringify(items);
-      if (json === state.lastJSON) { renderSide(); return; }
-      state.lastJSON = json;
-      state.nodes = items;
-      if (!state.nodes.some(n => n.name === state.sel)) state.sel = state.nodes.length ? state.nodes[0].name : null;
-      render();
+      applyItems((data && data.items) || []);
     } catch (e) {
-      if (e.status === 401) { showLogin('Your session has ended. Sign in again.'); return; }
-      if (e.status === 403 || e.status === 404) {
-        renderHeader();
-        showEmpty(e.status === 403 ? 'No access to the GPU inventory' : 'Kybernate is not installed', esc(e.message));
-        return;
-      }
-      setMsg(e.message, true);
+      handleError(e);
     }
   }
 
+  function handleError(e) {
+    if (e.status === 401) { showLogin(t('sessionEnded')); return; }
+    if (e.status === 403 || e.status === 404) {
+      renderHeader();
+      showEmpty(e.status === 403 ? t('noAccess') : t('notInstalled'), esc(e.message));
+      return;
+    }
+    setMsg(e.message, true);
+  }
+
+  // Live updates through server-sent events. If the browser cannot keep the
+  // stream open, the dashboard falls back to polling.
+  function startUpdates() {
+    stopUpdates();
+    if (!window.EventSource) { startPolling(); return; }
+    const es = new EventSource('/api/gpunodes/events');
+    state.events = es;
+    let failures = 0;
+    es.addEventListener('gpunodes', e => {
+      failures = 0;
+      if (state.live !== 'live') { state.live = 'live'; renderHeader(); }
+      try { applyItems(JSON.parse(e.data).items || []); } catch { /* ignore a broken event */ }
+    });
+    es.onerror = async () => {
+      failures++;
+      state.live = 'reconnecting';
+      renderHeader();
+      try {
+        await api('/api/session');
+      } catch (err) {
+        if (err.status === 401) { showLogin(t('sessionEnded')); return; }
+      }
+      if (failures >= 3) { es.close(); state.events = null; startPolling(); }
+    };
+  }
+
   function startPolling() {
-    stopPolling();
+    if (state.timer) clearInterval(state.timer);
+    state.live = 'polling';
+    renderHeader();
     state.timer = setInterval(() => { if (!document.hidden) refresh(); }, POLL_MS);
   }
-  function stopPolling() {
+
+  function stopUpdates() {
+    if (state.events) state.events.close();
+    state.events = null;
     if (state.timer) clearInterval(state.timer);
     state.timer = null;
   }
@@ -449,18 +644,16 @@
       state.lastJSON = '';
       const pods = gpu.allocatedTo || [];
       setMsg(reserved
-        ? (pods.length
-          ? `GPU ${gpu.index} on ${node.name} is reserved. It joins the Kybernate pool once ${podName(pods[0])} has ended.`
-          : `GPU ${gpu.index} on ${node.name} is now in the Kybernate pool. Regular pods no longer get it.`)
-        : `GPU ${gpu.index} on ${node.name} is available to regular pods again.`);
+        ? (pods.length ? t('msgReservedHeld', gpu.index, node.name, podName(pods[0])) : t('msgReserved', gpu.index, node.name))
+        : t('msgReleased', gpu.index, node.name));
     } catch (e) {
-      if (e.status === 401) { showLogin('Your session has ended. Sign in again.'); return; }
-      setMsg(`GPU ${gpu.index} could not be changed: ${e.message}`, true);
+      if (e.status === 401) { showLogin(t('sessionEnded')); return; }
+      setMsg(t('msgFailed', gpu.index, e.message), true);
     } finally {
       state.busy.delete(uuid);
       render();
-      // The node agent updates the state of the GPU within about a second.
-      setTimeout(refresh, 1200);
+      // Without the event stream, fetch the state the node agent reports.
+      if (!state.events) setTimeout(refresh, 1200);
     }
   }
 
@@ -487,6 +680,15 @@
     showLogin();
   });
 
+  $('lang').addEventListener('click', () => {
+    lang = lang === 'de' ? 'en' : 'de';
+    num = new Intl.NumberFormat(lang, { maximumFractionDigits: 1 });
+    storage.set('kybernate-lang', lang);
+    applyStaticTexts();
+    state.msg = '';
+    render();
+  });
+
   $('app').addEventListener('click', e => {
     const nodeBtn = e.target.closest('[data-node]');
     if (nodeBtn) { state.sel = nodeBtn.dataset.node; setMsg(''); render(); return; }
@@ -500,10 +702,11 @@
   });
 
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && state.session) refresh();
+    if (!document.hidden && state.session && !state.events) refresh();
   });
 
   /* ---------- Start ---------- */
+  applyStaticTexts();
   (async () => {
     try {
       state.session = await api('/api/session');

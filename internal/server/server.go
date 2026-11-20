@@ -11,11 +11,15 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
+
+	"k8s.io/apimachinery/pkg/watch"
 
 	"github.com/kybernate/dashboard/internal/kube"
 )
@@ -26,6 +30,7 @@ type Cluster interface {
 	WhoAmI(ctx context.Context, token string) (kube.User, error)
 	Access(ctx context.Context, token string) (kube.Access, error)
 	ListGPUNodes(ctx context.Context, token string) ([]kube.GPUNode, error)
+	WatchGPUNodes(ctx context.Context, token string) (watch.Interface, error)
 	SetReservation(ctx context.Context, token, node, uuid string, reserved bool) (kube.GPUNode, error)
 }
 
@@ -59,6 +64,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/logout", s.logout)
 	mux.HandleFunc("GET /api/session", s.withToken(s.session))
 	mux.HandleFunc("GET /api/gpunodes", s.withToken(s.listGPUNodes))
+	mux.HandleFunc("GET /api/gpunodes/events", s.withToken(s.gpuNodeEvents))
 	mux.HandleFunc("PUT /api/gpunodes/{node}/gpus/{uuid}/reservation", s.withToken(s.setReservation))
 	unknown := func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusNotFound, errorBody{Error: "unknown API endpoint"})
@@ -144,6 +150,103 @@ func (s *Server) listGPUNodes(w http.ResponseWriter, r *http.Request, token stri
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": nodes})
+}
+
+// Timing of the event stream. Variables so that tests can shorten them.
+var (
+	eventDebounce     = 250 * time.Millisecond
+	eventKeepAlive    = 25 * time.Second
+	eventWatchRestart = time.Second
+)
+
+// gpuNodeEvents streams the list of GPUNodes as server-sent events: once at
+// the start and again after every change, debounced. The watch runs with the
+// user's token, so RBAC applies as for every other request. When the token
+// expires, the stream ends and the browser's reconnect fails with 401.
+func (s *Server) gpuNodeEvents(w http.ResponseWriter, r *http.Request, token string) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, errorBody{Error: "streaming is not supported"})
+		return
+	}
+	ctx := r.Context()
+	nodes, err := s.Cluster.ListGPUNodes(ctx, token)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	h := w.Header()
+	h.Set("Content-Type", "text/event-stream")
+	h.Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+
+	send := func(nodes []kube.GPUNode) bool {
+		raw, err := json.Marshal(map[string]any{"items": nodes})
+		if err != nil {
+			return false
+		}
+		if _, err := fmt.Fprintf(w, "event: gpunodes\ndata: %s\n\n", raw); err != nil {
+			return false
+		}
+		flusher.Flush()
+		return true
+	}
+	if !send(nodes) {
+		return
+	}
+
+	keepAlive := time.NewTicker(eventKeepAlive)
+	defer keepAlive.Stop()
+	for ctx.Err() == nil {
+		watcher, err := s.Cluster.WatchGPUNodes(ctx, token)
+		if err != nil {
+			s.Log.Warn("watching GPUNodes failed", "error", err)
+			return
+		}
+		if !s.streamChanges(ctx, watcher, keepAlive.C, w, flusher, token, send) {
+			watcher.Stop()
+			return
+		}
+		watcher.Stop()
+		select {
+		case <-ctx.Done():
+		case <-time.After(eventWatchRestart):
+		}
+	}
+}
+
+// streamChanges sends the list after changes until the watch ends. It
+// returns false if the client is gone or the list cannot be read.
+func (s *Server) streamChanges(ctx context.Context, watcher watch.Interface, keepAlive <-chan time.Time, w http.ResponseWriter, flusher http.Flusher, token string, send func([]kube.GPUNode) bool) bool {
+	var debounce <-chan time.Time
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-keepAlive:
+			if _, err := fmt.Fprint(w, ": keep-alive\n\n"); err != nil {
+				return false
+			}
+			flusher.Flush()
+		case _, ok := <-watcher.ResultChan():
+			if !ok {
+				return true
+			}
+			if debounce == nil {
+				debounce = time.After(eventDebounce)
+			}
+		case <-debounce:
+			debounce = nil
+			nodes, err := s.Cluster.ListGPUNodes(ctx, token)
+			if err != nil {
+				s.Log.Warn("listing GPUNodes for the event stream failed", "error", err)
+				return false
+			}
+			if !send(nodes) {
+				return false
+			}
+		}
+	}
 }
 
 func (s *Server) setReservation(w http.ResponseWriter, r *http.Request, token string) {

@@ -68,7 +68,16 @@ func run(log *slog.Logger, o options) error {
 		Version:     version.Version,
 		Log:         log,
 	}
-	srv := &http.Server{Addr: o.listen, Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	// Event streams run until the client leaves. Cancelling the base context
+	// ends them, so that a shutdown does not wait for them.
+	base, cancelStreams := context.WithCancel(context.Background())
+	defer cancelStreams()
+	srv := &http.Server{
+		Addr:              o.listen,
+		Handler:           s.Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+		BaseContext:       func(net.Listener) context.Context { return base },
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -86,6 +95,7 @@ func run(log *slog.Logger, o options) error {
 	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	log.Info("dashboard stopping")
+	cancelStreams()
 	return srv.Shutdown(shutdown)
 }
 

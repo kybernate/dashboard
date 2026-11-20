@@ -28,6 +28,10 @@ make vet test lint helm-lint
 
 The Content Security Policy allows only scripts and styles from the dashboard itself, without inline code. Set dynamic styles through the DOM (`element.style`), not through `style` attributes in HTML strings.
 
+All texts of the UI live in the dictionary `I18N` in `web/app.js`, one entry per language. Static texts in `index.html` carry `data-i18n` (text), `data-i18n-html` (markup) or `data-i18n-aria` (`aria-label`). Add every new text in English and German. Error messages from the API server stay in English.
+
+The live updates come from `GET /api/gpunodes/events`, a stream of server-sent events. The server watches the `GPUNode`s with the user's token and sends the whole list after every change, debounced by 250 ms.
+
 ## Branches, pull requests and versions
 
 As in `kybernate`: topic branches, pull requests with Conventional Commit titles, squash merges, and automatic releases. See [Releasing](releasing.md).

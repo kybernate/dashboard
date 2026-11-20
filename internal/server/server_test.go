@@ -8,8 +8,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
+	"time"
+
+	"k8s.io/apimachinery/pkg/watch"
 
 	"github.com/kybernate/dashboard/internal/kube"
 )
@@ -17,6 +21,9 @@ import (
 // fakeCluster accepts the token "good" for an editor and "viewer" for a
 // user who may only read.
 type fakeCluster struct {
+	mu          sync.Mutex
+	watcher     *watch.FakeWatcher
+	nodes       []kube.GPUNode
 	tokens      []string
 	reservation struct {
 		node, uuid string
@@ -25,6 +32,8 @@ type fakeCluster struct {
 }
 
 func (f *fakeCluster) check(token string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.tokens = append(f.tokens, token)
 	if token != "good" && token != "viewer" {
 		return kube.ErrUnauthorized
@@ -50,7 +59,24 @@ func (f *fakeCluster) ListGPUNodes(_ context.Context, token string) ([]kube.GPUN
 	if err := f.check(token); err != nil {
 		return nil, err
 	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.nodes != nil {
+		return f.nodes, nil
+	}
 	return []kube.GPUNode{{Name: "gpu-01"}}, nil
+}
+
+func (f *fakeCluster) WatchGPUNodes(_ context.Context, token string) (watch.Interface, error) {
+	if err := f.check(token); err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.watcher == nil {
+		f.watcher = watch.NewFake()
+	}
+	return f.watcher, nil
 }
 
 func (f *fakeCluster) SetReservation(_ context.Context, token, node, uuid string, reserved bool) (kube.GPUNode, error) {
@@ -222,5 +248,90 @@ func TestSecurityHeadersAndStaticFiles(t *testing.T) {
 	}
 	if rec := do(t, h, http.MethodGet, "/api/nope", "", nil, false); rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown API: %d", rec.Code)
+	}
+}
+
+func TestGPUNodeEventsStreamChanges(t *testing.T) {
+	eventDebounce = 10 * time.Millisecond
+	cluster := &fakeCluster{}
+	srv := httptest.NewServer(newServer(cluster))
+	defer srv.Close()
+	cookie := func() *http.Cookie {
+		h := newServer(cluster)
+		return login(t, h, "good")
+	}()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/gpunodes/events", nil)
+	req.AddCookie(cookie)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if ct := res.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("Content-Type = %q", ct)
+	}
+
+	events := make(chan string, 10)
+	go func() {
+		buf := make([]byte, 4096)
+		var acc string
+		for {
+			n, err := res.Body.Read(buf)
+			acc += string(buf[:n])
+			for {
+				i := strings.Index(acc, "\n\n")
+				if i < 0 {
+					break
+				}
+				events <- acc[:i]
+				acc = acc[i+2:]
+			}
+			if err != nil {
+				close(events)
+				return
+			}
+		}
+	}()
+	next := func() string {
+		select {
+		case e := <-events:
+			return e
+		case <-time.After(5 * time.Second):
+			t.Fatal("no event")
+			return ""
+		}
+	}
+	if e := next(); !strings.Contains(e, "event: gpunodes") || !strings.Contains(e, `"gpu-01"`) {
+		t.Fatalf("first event: %q", e)
+	}
+
+	cluster.mu.Lock()
+	cluster.nodes = []kube.GPUNode{{Name: "gpu-02"}}
+	w := cluster.watcher
+	cluster.mu.Unlock()
+	for w == nil {
+		time.Sleep(10 * time.Millisecond)
+		cluster.mu.Lock()
+		w = cluster.watcher
+		cluster.mu.Unlock()
+	}
+	w.Modify(nil)
+	w.Modify(nil) // debounced into one event
+	if e := next(); !strings.Contains(e, `"gpu-02"`) {
+		t.Fatalf("event after a change: %q", e)
+	}
+}
+
+func TestGPUNodeEventsNeedASession(t *testing.T) {
+	h := newServer(&fakeCluster{})
+	if rec := do(t, h, http.MethodGet, "/api/gpunodes/events", "", nil, false); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status %d", rec.Code)
+	}
+	bad := &http.Cookie{Name: CookieName, Value: "YmFk"} // "bad"
+	if rec := do(t, h, http.MethodGet, "/api/gpunodes/events", "", bad, false); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("bad token: status %d", rec.Code)
 	}
 }
