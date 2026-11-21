@@ -17,6 +17,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -26,6 +27,13 @@ import (
 
 // GPUNodes is the resource of the GPUNode custom resources.
 var GPUNodes = schema.GroupVersionResource{Group: "kybernate.io", Version: "v1alpha1", Resource: "gpunodes"}
+
+// GPUWorkloads is the resource of the GPUWorkload custom resources.
+var GPUWorkloads = schema.GroupVersionResource{Group: "kybernate.io", Version: "v1alpha1", Resource: "gpuworkloads"}
+
+// ErrInvalidState is returned for a workload state other than Running or
+// Suspended.
+var ErrInvalidState = errors.New("the state must be Running or Suspended")
 
 // Errors returned by the client. Other errors come from the API server.
 var (
@@ -83,10 +91,14 @@ func (c *Client) Access(ctx context.Context, token string) (Access, error) {
 	if err != nil {
 		return Access{}, err
 	}
-	allowed := func(verb string) (bool, error) {
+	allowed := func(verb string, resources ...string) (bool, error) {
+		resource := GPUNodes.Resource
+		if len(resources) > 0 {
+			resource = resources[0]
+		}
 		review, err := cs.AuthorizationV1().SelfSubjectAccessReviews().Create(ctx, &authorizationv1.SelfSubjectAccessReview{
 			Spec: authorizationv1.SelfSubjectAccessReviewSpec{
-				ResourceAttributes: &authorizationv1.ResourceAttributes{Group: GPUNodes.Group, Resource: GPUNodes.Resource, Verb: verb},
+				ResourceAttributes: &authorizationv1.ResourceAttributes{Group: GPUNodes.Group, Resource: resource, Verb: verb},
 			},
 		}, metav1.CreateOptions{})
 		if err != nil {
@@ -99,6 +111,9 @@ func (c *Client) Access(ctx context.Context, token string) (Access, error) {
 		return Access{}, err
 	}
 	if access.Reserve, err = allowed("update"); err != nil {
+		return Access{}, err
+	}
+	if access.Suspend, err = allowed("patch", GPUWorkloads.Resource); err != nil {
 		return Access{}, err
 	}
 	return access, nil
@@ -143,6 +158,73 @@ func (c *Client) WatchGPUNodes(ctx context.Context, token string) (watch.Interfa
 		return nil, mapError(err)
 	}
 	return w, nil
+}
+
+// ListGPUWorkloads returns all GPUWorkloads the user may see, sorted by
+// namespace and name. Without the CRD, or without access, the list is empty.
+func (c *Client) ListGPUWorkloads(ctx context.Context, token string) ([]GPUWorkload, error) {
+	dyn, err := c.dynamicFor(token)
+	if err != nil {
+		return nil, err
+	}
+	list, err := dyn.Resource(GPUWorkloads).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) || apierrors.IsForbidden(err) {
+			return []GPUWorkload{}, nil
+		}
+		return nil, mapError(err)
+	}
+	out := make([]GPUWorkload, 0, len(list.Items))
+	for i := range list.Items {
+		raw, err := json.Marshal(list.Items[i].Object)
+		if err != nil {
+			return nil, err
+		}
+		var v struct {
+			Spec   GPUWorkloadSpec   `json:"spec"`
+			Status GPUWorkloadStatus `json:"status"`
+		}
+		if err := json.Unmarshal(raw, &v); err != nil {
+			return nil, fmt.Errorf("decoding GPUWorkload %s: %w", list.Items[i].GetName(), err)
+		}
+		out = append(out, GPUWorkload{Namespace: list.Items[i].GetNamespace(), Name: list.Items[i].GetName(), Spec: v.Spec, Status: v.Status})
+	}
+	slices.SortFunc(out, func(a, b GPUWorkload) int {
+		if c := strings.Compare(a.Namespace, b.Namespace); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Name, b.Name)
+	})
+	return out, nil
+}
+
+// WatchGPUWorkloads watches all GPUWorkloads.
+func (c *Client) WatchGPUWorkloads(ctx context.Context, token string) (watch.Interface, error) {
+	dyn, err := c.dynamicFor(token)
+	if err != nil {
+		return nil, err
+	}
+	w, err := dyn.Resource(GPUWorkloads).Watch(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return w, nil
+}
+
+// SetWorkloadState suspends or resumes a workload through spec.state.
+func (c *Client) SetWorkloadState(ctx context.Context, token, namespace, name, state string) error {
+	if state != "Running" && state != "Suspended" {
+		return ErrInvalidState
+	}
+	dyn, err := c.dynamicFor(token)
+	if err != nil {
+		return err
+	}
+	patch := []byte(`{"spec":{"state":"` + state + `"}}`)
+	if _, err := dyn.Resource(GPUWorkloads).Namespace(namespace).Patch(ctx, name, types.MergePatchType, patch, metav1.PatchOptions{}); err != nil {
+		return mapError(err)
+	}
+	return nil
 }
 
 // SetReservation reserves a GPU of a node for Kybernate or releases it, by
@@ -207,7 +289,7 @@ func decode(obj *unstructured.Unstructured) (GPUNode, error) {
 
 func mapError(err error) error {
 	switch {
-	case errors.Is(err, ErrUnknownGPU):
+	case errors.Is(err, ErrUnknownGPU), errors.Is(err, ErrInvalidState):
 		return err
 	case apierrors.IsUnauthorized(err):
 		return ErrUnauthorized

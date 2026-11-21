@@ -20,8 +20,8 @@ The dashboard is installed with its own Helm chart, published as an OCI artifact
 
 | Role | Can |
 | --- | --- |
-| `kybernate-viewer`, or the built-in `view` | see the GPU inventory and the reservations |
-| `kybernate-editor`, or the built-in `edit` | also reserve GPUs for Kybernate and release them |
+| `kybernate-viewer`, or the built-in `view` | see the GPU inventory, the reservations and the workloads |
+| `kybernate-editor`, or the built-in `edit` | also reserve GPUs for Kybernate and release them, and suspend and resume workloads |
 
 ## 1. Install
 
@@ -89,9 +89,9 @@ For read-only access, bind `kybernate-viewer` instead. Any other token the API s
 | **Header** | GPUs and VRAM in the Kybernate pool, pending reservations, GPUs held by pods, number of GPU nodes, and the number of nodes that need attention. **Live** shows that changes arrive at once. |
 | **Nodes** | Every GPU node with its GPUs, its interconnect and a bar per GPU: navy in the pool, orange pending, grey held by a pod. A red dot marks a node that needs attention. |
 | **Topology and matrix** | How the GPUs are connected: NVLink, PCIe switch, CPU host bridge or across CPU sockets. The matrix follows `nvidia-smi topo -m`. |
-| **GPU cards** | Model, VRAM, the pod holding the GPU, and the switch to reserve it. A GPU held by a pod can be reserved as well; it joins the pool once the pod has ended. |
+| **GPU cards** | Model, VRAM, the pod holding the GPU or the Kybernate workload that leased it, and the switch to reserve it. A GPU held by a pod can be reserved as well; it joins the pool once the pod has ended. |
 | **Problems** | Above the topology, with a hint how to fix them: the node agent has not reported or its inventory is older than 3 minutes, the inventory failed, another device plugin such as NVIDIA's serves `nvidia.com/gpu` on the node, the CDI specification lacks GPUs, or a GPU has MIG enabled. They come from the conditions of the `GPUNode`. |
-| **Side panel** | Driver, CUDA version, age of the inventory, state of the node agent, the device plugin and CDI, and the pods holding GPUs of the node |
+| **Side panel** | Driver, CUDA version, age of the inventory, state of the node agent, the device plugin and CDI, the pods holding GPUs of the node, and every Kybernate workload: its phase, node, GPUs, isolation and the duration of the last suspend and resume. Red means hot, on its GPUs; orange means warm, in host memory. Editors suspend and resume a workload with its button. |
 
 The dashboard watches the `GPUNode` resources with the user's token and shows every change within a second, through server-sent events. If a proxy does not let the event stream through, it falls back to refreshing every 5 seconds. Behind an Ingress, the stream needs proxy buffering to be off; the dashboard sends `X-Accel-Buffering: no` for NGINX.
 

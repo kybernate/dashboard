@@ -181,3 +181,29 @@ code { font-family: var(--mono); font-size: .9em; background: var(--d-side); pad
   .user { width: 100%; }
   .user-name { flex: 1 1 0; max-width: none; }
 }
+
+/* ---------- Workloads (models in the draft) ---------- */
+.dash-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.5px; color: var(--d-muted); margin-top: -4px; }
+.temp { display: inline-flex; align-items: center; gap: 5px; }
+.temp i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+.temp .t-hot { background: var(--d-hot); }
+.temp .t-warm { background: var(--d-warm); }
+.mcard { background: var(--d-panel); border: 1px solid var(--d-line); border-radius: 12px; padding: 11px 12px; display: grid; gap: 5px; cursor: pointer; transition: border-color .2s; }
+.mcard:hover, .mcard.hl { border-color: rgba(46, 54, 95, .5); }
+.mcard-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.mcard-h b { font-size: 13px; display: flex; align-items: center; gap: 7px; overflow-wrap: anywhere; min-width: 0; }
+.mcard-h b i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none; }
+.state { font: 700 10px var(--mono); padding: 3px 7px; border-radius: 999px; letter-spacing: .03em; white-space: nowrap; }
+.state.ready { background: #fbe1d8; color: #9d3518; }
+.state.ram { background: #fdead6; color: #94500f; }
+.state.busy { background: #fdf0e4; color: #8a4a1c; }
+.state.failed { background: #f9d6cf; color: #a93a1e; }
+.mcard-meta { font: 500 11.5px var(--mono); color: var(--d-muted); overflow-wrap: anywhere; }
+.mcard-msg { font-size: 12px; color: #8a4a1c; overflow-wrap: anywhere; }
+.mcard-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.mcard-actions button { border: 1px solid var(--d-line); background: var(--d-bg); color: var(--d-text); border-radius: 8px; padding: 5px 10px; font: 600 12px var(--font); cursor: pointer; }
+.mcard-actions button:hover:not(:disabled) { border-color: var(--d-kyb); color: var(--d-kyb); }
+.mcard-actions button:disabled { opacity: .5; cursor: wait; }
+.gcard.hot { border-color: rgba(214, 79, 45, .55); }
+.gcard.hot .pool-badge { background: var(--d-hot); color: #fff; }
+.gcard.hot .vram-bar span { background: var(--d-hot); }

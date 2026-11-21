@@ -30,7 +30,7 @@ The Content Security Policy allows only scripts and styles from the dashboard it
 
 All texts of the UI live in the dictionary `I18N` in `web/app.js`, one entry per language. Static texts in `index.html` carry `data-i18n` (text), `data-i18n-html` (markup) or `data-i18n-aria` (`aria-label`). Add every new text in English and German. Error messages from the API server stay in English.
 
-The live updates come from `GET /api/gpunodes/events`, a stream of server-sent events. The server watches the `GPUNode`s with the user's token and sends the whole list after every change, debounced by 250 ms.
+The live updates come from `GET /api/gpunodes/events`, a stream of server-sent events. The server watches the `GPUNode`s and the `GPUWorkload`s with the user's token and sends both lists after every change, debounced by 250 ms. Workloads are suspended and resumed with `PUT /api/workloads/{namespace}/{name}/state`, which patches `spec.state`.
 
 ## Branches, pull requests and versions
 

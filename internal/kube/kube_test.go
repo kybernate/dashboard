@@ -112,7 +112,7 @@ func gpuNode(name string, reserved []string, uuids ...string) *unstructured.Unst
 
 func fakeClient(objects ...runtime.Object) *Client {
 	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
-		map[schema.GroupVersionResource]string{GPUNodes: "GPUNodeList"}, objects...)
+		map[schema.GroupVersionResource]string{GPUNodes: "GPUNodeList", GPUWorkloads: "GPUWorkloadList"}, objects...)
 	c := New(&rest.Config{Host: "https://unused"}, "test")
 	c.dynamicFor = func(string) (dynamic.Interface, error) { return dyn, nil }
 	return c
@@ -166,5 +166,41 @@ func TestSetReservation(t *testing.T) {
 	}
 	if _, err := c.SetReservation(ctx, "token", "node-x", "GPU-a0", true); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unknown node: err = %v", err)
+	}
+}
+
+func gpuWorkload(ns, name, state, phase string) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "kybernate.io/v1alpha1",
+		"kind":       "GPUWorkload",
+		"metadata":   map[string]any{"name": name, "namespace": ns},
+		"spec":       map[string]any{"state": state},
+		"status": map[string]any{"phase": phase, "nodeName": "gpu-01", "isolation": "strict",
+			"containers": []any{map[string]any{"name": "main", "gpuCount": int64(1), "leasedGPUs": []any{"GPU-a"}}}},
+	}}
+}
+
+func TestWorkloads(t *testing.T) {
+	c := fakeClient(gpuWorkload("ml", "b", "Running", "Running"), gpuWorkload("ai", "a", "Suspended", "Suspended"))
+	ctx := context.Background()
+	list, err := c.ListGPUWorkloads(ctx, "token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 || list[0].Namespace != "ai" || list[1].Name != "b" {
+		t.Fatalf("list = %+v", list)
+	}
+	if w := list[1]; w.Status.Phase != "Running" || w.Status.Containers[0].LeasedGPUs[0] != "GPU-a" {
+		t.Fatalf("workload = %+v", w)
+	}
+	if err := c.SetWorkloadState(ctx, "token", "ml", "b", "Suspended"); err != nil {
+		t.Fatal(err)
+	}
+	list, _ = c.ListGPUWorkloads(ctx, "token")
+	if list[1].Spec.State != "Suspended" {
+		t.Fatalf("state after patch = %q", list[1].Spec.State)
+	}
+	if err := c.SetWorkloadState(ctx, "token", "ml", "b", "Paused"); !errors.Is(err, ErrInvalidState) {
+		t.Fatalf("invalid state: %v", err)
 	}
 }

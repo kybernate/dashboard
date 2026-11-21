@@ -31,6 +31,9 @@ type Cluster interface {
 	Access(ctx context.Context, token string) (kube.Access, error)
 	ListGPUNodes(ctx context.Context, token string) ([]kube.GPUNode, error)
 	WatchGPUNodes(ctx context.Context, token string) (watch.Interface, error)
+	ListGPUWorkloads(ctx context.Context, token string) ([]kube.GPUWorkload, error)
+	WatchGPUWorkloads(ctx context.Context, token string) (watch.Interface, error)
+	SetWorkloadState(ctx context.Context, token, namespace, name, state string) error
 	SetReservation(ctx context.Context, token, node, uuid string, reserved bool) (kube.GPUNode, error)
 }
 
@@ -66,6 +69,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/gpunodes", s.withToken(s.listGPUNodes))
 	mux.HandleFunc("GET /api/gpunodes/events", s.withToken(s.gpuNodeEvents))
 	mux.HandleFunc("PUT /api/gpunodes/{node}/gpus/{uuid}/reservation", s.withToken(s.setReservation))
+	mux.HandleFunc("GET /api/workloads", s.withToken(s.listWorkloads))
+	mux.HandleFunc("PUT /api/workloads/{namespace}/{name}/state", s.withToken(s.setWorkloadState))
 	unknown := func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusNotFound, errorBody{Error: "unknown API endpoint"})
 	}
@@ -159,10 +164,11 @@ var (
 	eventWatchRestart = time.Second
 )
 
-// gpuNodeEvents streams the list of GPUNodes as server-sent events: once at
-// the start and again after every change, debounced. The watch runs with the
-// user's token, so RBAC applies as for every other request. When the token
-// expires, the stream ends and the browser's reconnect fails with 401.
+// gpuNodeEvents streams the GPUNodes and the GPUWorkloads as server-sent
+// events: once at the start and again after every change of either,
+// debounced. The watches run with the user's token, so RBAC applies as for
+// every other request. When the token expires, the stream ends and the
+// browser's reconnect fails with 401.
 func (s *Server) gpuNodeEvents(w http.ResponseWriter, r *http.Request, token string) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -170,7 +176,7 @@ func (s *Server) gpuNodeEvents(w http.ResponseWriter, r *http.Request, token str
 		return
 	}
 	ctx := r.Context()
-	nodes, err := s.Cluster.ListGPUNodes(ctx, token)
+	snapshot, err := s.snapshot(ctx, token)
 	if err != nil {
 		s.writeError(w, err)
 		return
@@ -180,8 +186,8 @@ func (s *Server) gpuNodeEvents(w http.ResponseWriter, r *http.Request, token str
 	h.Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
 
-	send := func(nodes []kube.GPUNode) bool {
-		raw, err := json.Marshal(map[string]any{"items": nodes})
+	send := func(payload map[string]any) bool {
+		raw, err := json.Marshal(payload)
 		if err != nil {
 			return false
 		}
@@ -191,23 +197,25 @@ func (s *Server) gpuNodeEvents(w http.ResponseWriter, r *http.Request, token str
 		flusher.Flush()
 		return true
 	}
-	if !send(nodes) {
+	if !send(snapshot) {
 		return
 	}
 
 	keepAlive := time.NewTicker(eventKeepAlive)
 	defer keepAlive.Stop()
 	for ctx.Err() == nil {
-		watcher, err := s.Cluster.WatchGPUNodes(ctx, token)
+		watchers, err := s.watchAll(ctx, token)
 		if err != nil {
 			s.Log.Warn("watching GPUNodes failed", "error", err)
 			return
 		}
-		if !s.streamChanges(ctx, watcher, keepAlive.C, w, flusher, token, send) {
-			watcher.Stop()
+		cont := s.streamChanges(ctx, watchers, keepAlive.C, w, flusher, token, send)
+		for _, wt := range watchers {
+			wt.Stop()
+		}
+		if !cont {
 			return
 		}
-		watcher.Stop()
 		select {
 		case <-ctx.Done():
 		case <-time.After(eventWatchRestart):
@@ -215,38 +223,102 @@ func (s *Server) gpuNodeEvents(w http.ResponseWriter, r *http.Request, token str
 	}
 }
 
-// streamChanges sends the list after changes until the watch ends. It
-// returns false if the client is gone or the list cannot be read.
-func (s *Server) streamChanges(ctx context.Context, watcher watch.Interface, keepAlive <-chan time.Time, w http.ResponseWriter, flusher http.Flusher, token string, send func([]kube.GPUNode) bool) bool {
+// snapshot reads the GPUNodes and the GPUWorkloads.
+func (s *Server) snapshot(ctx context.Context, token string) (map[string]any, error) {
+	nodes, err := s.Cluster.ListGPUNodes(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	workloads, err := s.Cluster.ListGPUWorkloads(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"items": nodes, "workloads": workloads}, nil
+}
+
+// watchAll watches the GPUNodes and, if the user may, the GPUWorkloads.
+func (s *Server) watchAll(ctx context.Context, token string) ([]watch.Interface, error) {
+	nodes, err := s.Cluster.WatchGPUNodes(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	out := []watch.Interface{nodes}
+	if wl, err := s.Cluster.WatchGPUWorkloads(ctx, token); err == nil {
+		out = append(out, wl)
+	}
+	return out, nil
+}
+
+// streamChanges sends a snapshot after changes until a watch ends. It
+// returns false if the client is gone or the lists cannot be read.
+func (s *Server) streamChanges(ctx context.Context, watchers []watch.Interface, keepAlive <-chan time.Time, w http.ResponseWriter, flusher http.Flusher, token string, send func(map[string]any) bool) bool {
+	changed := make(chan struct{}, 1)
+	ended := make(chan struct{}, len(watchers))
+	for _, wt := range watchers {
+		go func(wt watch.Interface) {
+			for range wt.ResultChan() {
+				select {
+				case changed <- struct{}{}:
+				default:
+				}
+			}
+			ended <- struct{}{}
+		}(wt)
+	}
 	var debounce <-chan time.Time
 	for {
 		select {
 		case <-ctx.Done():
 			return false
+		case <-ended:
+			return true
 		case <-keepAlive:
 			if _, err := fmt.Fprint(w, ": keep-alive\n\n"); err != nil {
 				return false
 			}
 			flusher.Flush()
-		case _, ok := <-watcher.ResultChan():
-			if !ok {
-				return true
-			}
+		case <-changed:
 			if debounce == nil {
 				debounce = time.After(eventDebounce)
 			}
 		case <-debounce:
 			debounce = nil
-			nodes, err := s.Cluster.ListGPUNodes(ctx, token)
+			snapshot, err := s.snapshot(ctx, token)
 			if err != nil {
-				s.Log.Warn("listing GPUNodes for the event stream failed", "error", err)
+				s.Log.Warn("reading the state for the event stream failed", "error", err)
 				return false
 			}
-			if !send(nodes) {
+			if !send(snapshot) {
 				return false
 			}
 		}
 	}
+}
+
+func (s *Server) listWorkloads(w http.ResponseWriter, r *http.Request, token string) {
+	workloads, err := s.Cluster.ListGPUWorkloads(r.Context(), token)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": workloads})
+}
+
+func (s *Server) setWorkloadState(w http.ResponseWriter, r *http.Request, token string) {
+	var req struct {
+		State string `json:"state"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorBody{Error: `the body must be {"state": "Running"|"Suspended"}`})
+		return
+	}
+	ns, name := r.PathValue("namespace"), r.PathValue("name")
+	if err := s.Cluster.SetWorkloadState(r.Context(), token, ns, name, req.State); err != nil {
+		s.writeError(w, err)
+		return
+	}
+	s.Log.Info("workload state changed", "workload", ns+"/"+name, "state", req.State)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) setReservation(w http.ResponseWriter, r *http.Request, token string) {
@@ -295,7 +367,7 @@ func (s *Server) writeError(w http.ResponseWriter, err error) {
 		status = http.StatusForbidden
 	case errors.Is(err, kube.ErrNotInstalled), errors.Is(err, kube.ErrNotFound):
 		status = http.StatusNotFound
-	case errors.Is(err, kube.ErrUnknownGPU):
+	case errors.Is(err, kube.ErrUnknownGPU), errors.Is(err, kube.ErrInvalidState):
 		status = http.StatusBadRequest
 	default:
 		s.Log.Warn("request to the Kubernetes API failed", "error", err)

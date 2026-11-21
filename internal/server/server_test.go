@@ -23,6 +23,8 @@ import (
 type fakeCluster struct {
 	mu          sync.Mutex
 	watcher     *watch.FakeWatcher
+	wlWatcher   *watch.FakeWatcher
+	state       string
 	nodes       []kube.GPUNode
 	tokens      []string
 	reservation struct {
@@ -77,6 +79,41 @@ func (f *fakeCluster) WatchGPUNodes(_ context.Context, token string) (watch.Inte
 		f.watcher = watch.NewFake()
 	}
 	return f.watcher, nil
+}
+
+func (f *fakeCluster) ListGPUWorkloads(_ context.Context, token string) ([]kube.GPUWorkload, error) {
+	if err := f.check(token); err != nil {
+		return nil, err
+	}
+	return []kube.GPUWorkload{{Namespace: "ml", Name: "model", Spec: kube.GPUWorkloadSpec{State: f.state}}}, nil
+}
+
+func (f *fakeCluster) WatchGPUWorkloads(_ context.Context, token string) (watch.Interface, error) {
+	if err := f.check(token); err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.wlWatcher == nil {
+		f.wlWatcher = watch.NewFake()
+	}
+	return f.wlWatcher, nil
+}
+
+func (f *fakeCluster) SetWorkloadState(_ context.Context, token, namespace, name, state string) error {
+	if err := f.check(token); err != nil {
+		return err
+	}
+	if token == "viewer" {
+		return kube.ErrForbidden
+	}
+	if state != "Running" && state != "Suspended" {
+		return kube.ErrInvalidState
+	}
+	f.mu.Lock()
+	f.state = state
+	f.mu.Unlock()
+	return nil
 }
 
 func (f *fakeCluster) SetReservation(_ context.Context, token, node, uuid string, reserved bool) (kube.GPUNode, error) {
@@ -333,5 +370,27 @@ func TestGPUNodeEventsNeedASession(t *testing.T) {
 	bad := &http.Cookie{Name: CookieName, Value: "YmFk"} // "bad"
 	if rec := do(t, h, http.MethodGet, "/api/gpunodes/events", "", bad, false); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("bad token: status %d", rec.Code)
+	}
+}
+
+func TestWorkloadState(t *testing.T) {
+	cluster := &fakeCluster{}
+	h := newServer(cluster)
+	path := "/api/workloads/ml/model/state"
+	if rec := do(t, h, http.MethodPut, path, `{"state":"Suspended"}`, login(t, h, "good"), true); rec.Code != http.StatusNoContent {
+		t.Fatalf("editor: %d %s", rec.Code, rec.Body)
+	}
+	if cluster.state != "Suspended" {
+		t.Fatalf("state = %q", cluster.state)
+	}
+	if rec := do(t, h, http.MethodPut, path, `{"state":"Paused"}`, login(t, h, "good"), true); rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid state: %d", rec.Code)
+	}
+	if rec := do(t, h, http.MethodPut, path, `{"state":"Running"}`, login(t, h, "viewer"), true); rec.Code != http.StatusForbidden {
+		t.Fatalf("viewer: %d", rec.Code)
+	}
+	rec := do(t, h, http.MethodGet, "/api/workloads", "", login(t, h, "good"), false)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"model"`) {
+		t.Fatalf("list: %d %s", rec.Code, rec.Body)
 	}
 }

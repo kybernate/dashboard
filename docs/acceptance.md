@@ -14,6 +14,9 @@ The tests run on any cluster with Kybernate installed, see [Kybernate acceptance
 | Release a GPU | switch a reserved GPU off | the GPU shows *Free* |
 | Live updates | change `spec.reservedGPUs` of a `GPUNode` with `kubectl` | the dashboard shows the change within a second, without reloading, and the header shows *Live* |
 | Problems | serve a socket `nvidia-gpu-<id>.sock` in `/var/lib/kubelet/device-plugins` on a GPU node and restart its node agent | the header counts the node as needing attention, the node shows a hint how to fix it; both disappear when the socket is gone |
+| Leases | start a pod with the RuntimeClass `kybernate` requesting `kybernate.io/gpu` | its GPU card shows the lease and the workload, the side panel lists the workload as running |
+| Suspend and resume | press *Suspend*, then *Resume* on the workload | the phase changes within seconds without reloading; while suspended the GPU card no longer shows the lease, afterwards it shows it again with the GPU memory in use |
+| Read-only workloads | sign in as `kybernate-viewer` | workloads are listed without buttons |
 | Language | open the dashboard in a browser set to German, then press the language button | German UI, then English |
 | Sign out | press *Sign out* | the cookie is deleted, the sign-in page shows |
 | Phone width | open the dashboard at 390 pixels width | no horizontal scrolling, every control reachable |
