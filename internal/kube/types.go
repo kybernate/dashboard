@@ -25,6 +25,7 @@ type GPUNodeStatus struct {
 	GPUCount          int32       `json:"gpuCount,omitempty"`
 	ReservedCount     int32       `json:"reservedCount,omitempty"`
 	PendingCount      int32       `json:"pendingCount,omitempty"`
+	LeasedCount       int32       `json:"leasedCount,omitempty"`
 	GPUs              []GPU       `json:"gpus,omitempty"`
 	LastInventoryTime string      `json:"lastInventoryTime,omitempty"`
 	Conditions        []Condition `json:"conditions,omitempty"`
@@ -46,6 +47,7 @@ type GPU struct {
 	ProcessCount      int32          `json:"processCount,omitempty"`
 	AllocatedTo       []PodReference `json:"allocatedTo,omitempty"`
 	State             string         `json:"state,omitempty"`
+	LeasedTo          *PodReference  `json:"leasedTo,omitempty"`
 }
 
 // GPULink is the connection from one GPU to another GPU of the same node.
@@ -78,8 +80,44 @@ type User struct {
 	Groups   []string `json:"groups,omitempty"`
 }
 
-// Access tells what the user may do with GPUNode resources.
+// Access tells what the user may do with GPUNode and GPUWorkload resources.
 type Access struct {
 	List    bool `json:"list"`
 	Reserve bool `json:"reserve"`
+	// Suspend tells whether the user may suspend and resume workloads.
+	Suspend bool `json:"suspend"`
+}
+
+// GPUWorkload is a pod with GPUs from the Kybernate pool.
+type GPUWorkload struct {
+	Namespace string            `json:"namespace"`
+	Name      string            `json:"name"`
+	Spec      GPUWorkloadSpec   `json:"spec"`
+	Status    GPUWorkloadStatus `json:"status"`
+}
+
+// GPUWorkloadSpec holds the desired state, Running or Suspended.
+type GPUWorkloadSpec struct {
+	State string `json:"state,omitempty"`
+}
+
+// GPUWorkloadStatus is what the node agent reports about a workload.
+type GPUWorkloadStatus struct {
+	Phase              string           `json:"phase,omitempty"`
+	NodeName           string           `json:"nodeName,omitempty"`
+	Isolation          string           `json:"isolation,omitempty"`
+	Containers         []ContainerLease `json:"containers,omitempty"`
+	Message            string           `json:"message,omitempty"`
+	LastTransitionTime string           `json:"lastTransitionTime,omitempty"`
+	LastSuspendSeconds string           `json:"lastSuspendSeconds,omitempty"`
+	LastResumeSeconds  string           `json:"lastResumeSeconds,omitempty"`
+}
+
+// ContainerLease describes the GPUs of one container of a workload.
+type ContainerLease struct {
+	Name         string   `json:"name"`
+	GPUCount     int32    `json:"gpuCount"`
+	VisibleGPUs  []string `json:"visibleGPUs,omitempty"`
+	PhysicalGPUs []string `json:"physicalGPUs,omitempty"`
+	LeasedGPUs   []string `json:"leasedGPUs,omitempty"`
 }

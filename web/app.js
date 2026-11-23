@@ -21,7 +21,7 @@
       nodes: 'Nodes', view: 'View', topology: 'Topology', matrix: 'Matrix', nodeDetails: 'Node details',
       cluster: 'Cluster', readOnly: 'read only', language: 'Language',
       live: 'Live', reconnecting: 'Reconnecting…', polling: 'Refresh every 5 s',
-      kpiPool: 'GPUs in the Kybernate pool', kpiVram: 'VRAM in the pool', kpiPending: 'reservations pending',
+      kpiPool: 'GPUs in the pool', kpiVram: 'VRAM in the pool', kpiPending: 'reservations pending',
       kpiHeld: 'GPUs held by pods', kpiNodes: 'GPU nodes', kpiAttention: 'nodes need attention',
       noGpu: 'no GPUs', singleGpu: 'Single GPU', noGpuLabel: 'No GPU', oneGpu: 'one GPU', noGpusFound: 'no GPUs found',
       nvAll: 'NVLink all-to-all', nvAllDesc: 'every GPU connected to every other through NVLink',
@@ -46,6 +46,15 @@
       sideNode: 'Node', sideDriver: 'Driver', sideCuda: 'CUDA', sideInventory: 'Inventory', sideAgent: 'Agent',
       sidePlugin: 'Device plugin', sideCdi: 'CDI', sideReady: 'ready', sideNoReport: 'no report', sideOff: 'off',
       sidePods: 'Pods on GPUs', sideNoPods: 'No pod holds a GPU of this node.',
+      kpiWorkloads: 'workloads hot · warm', stLeased: 'Leased', tagLeased: 'LEASED',
+      cardLeased: 'Leased to a Kybernate workload', legendLeased: 'Leased',
+      sideWorkloads: 'Workloads', sideNoWorkloads: 'No Kybernate workload yet. Pods with the RuntimeClass kybernate appear here.',
+      legendHot: 'hot · GPU', legendWarm: 'warm · RAM',
+      phase: { Pending: 'Pending', Running: 'Running', Suspending: 'Suspending', Suspended: 'Suspended', Waiting: 'Waiting for GPUs', Resuming: 'Resuming', Failed: 'Failed' },
+      wlOn: (node, gpus) => `${node}${gpus ? ' · GPU ' + gpus : ''}`, wlLast: (s, r) => `suspend ${s} s · resume ${r} s`,
+      suspend: 'Suspend', resume: 'Resume', wlSaving: 'Sending…',
+      msgWorkload: (w, st) => `${w}: ${st === 'Suspended' ? 'suspending' : 'resuming'} requested.`,
+      msgWorkloadFailed: (w, e) => `${w} could not be changed: ${e}`,
       sidePendingGpus: g => `reserved, released when the pod ends: GPU ${g}`,
       ago: s => s < 60 ? `${s} s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`, never: 'never',
       issueNoReport: 'The node agent has not reported an inventory yet.',
@@ -75,8 +84,8 @@
       nodes: 'Nodes', view: 'Ansicht', topology: 'Topologie', matrix: 'Matrix', nodeDetails: 'Node-Details',
       cluster: 'Cluster', readOnly: 'nur lesen', language: 'Sprache',
       live: 'Live', reconnecting: 'Verbinde neu …', polling: 'Abfrage alle 5 s',
-      kpiPool: 'GPUs im Kybernate-Pool', kpiVram: 'VRAM im Pool', kpiPending: 'wartende Reservierungen',
-      kpiHeld: 'GPUs von Pods belegt', kpiNodes: 'GPU-Nodes', kpiAttention: 'Nodes mit Problemen',
+      kpiPool: 'GPUs im Pool', kpiVram: 'VRAM im Pool', kpiPending: 'Reservierungen offen',
+      kpiHeld: 'GPUs bei Pods', kpiNodes: 'GPU-Nodes', kpiAttention: 'Nodes mit Problemen',
       noGpu: 'keine GPUs', singleGpu: 'Eine GPU', noGpuLabel: 'Keine GPU', oneGpu: 'eine GPU', noGpusFound: 'keine GPUs gefunden',
       nvAll: 'NVLink alle-zu-allen', nvAllDesc: 'jede GPU über NVLink mit jeder anderen verbunden',
       nvPairs: n => `NVLink zwischen ${n} GPU-${n > 1 ? 'Paaren' : 'Paar'}`, otherwise: x => `sonst ${x}`,
@@ -100,6 +109,15 @@
       sideNode: 'Node', sideDriver: 'Treiber', sideCuda: 'CUDA', sideInventory: 'Inventar', sideAgent: 'Agent',
       sidePlugin: 'Device-Plugin', sideCdi: 'CDI', sideReady: 'bereit', sideNoReport: 'keine Meldung', sideOff: 'aus',
       sidePods: 'Pods auf GPUs', sideNoPods: 'Kein Pod belegt eine GPU dieses Nodes.',
+      kpiWorkloads: 'Workloads hot · warm', stLeased: 'Geleast', tagLeased: 'GELEAST',
+      cardLeased: 'An einen Kybernate-Workload geleast', legendLeased: 'Geleast',
+      sideWorkloads: 'Workloads', sideNoWorkloads: 'Noch kein Kybernate-Workload. Pods mit der RuntimeClass kybernate erscheinen hier.',
+      legendHot: 'hot · GPU', legendWarm: 'warm · RAM',
+      phase: { Pending: 'Wartet auf Start', Running: 'Läuft', Suspending: 'Wird ausgelagert', Suspended: 'Ausgelagert', Waiting: 'Wartet auf GPUs', Resuming: 'Wird fortgesetzt', Failed: 'Fehler' },
+      wlOn: (node, gpus) => `${node}${gpus ? ' · GPU ' + gpus : ''}`, wlLast: (s, r) => `auslagern ${s} s · fortsetzen ${r} s`,
+      suspend: 'Auslagern', resume: 'Fortsetzen', wlSaving: 'Sendet …',
+      msgWorkload: (w, st) => `${w}: ${st === 'Suspended' ? 'Auslagern' : 'Fortsetzen'} angefordert.`,
+      msgWorkloadFailed: (w, e) => `${w} konnte nicht geändert werden: ${e}`,
       sidePendingGpus: g => `reserviert, frei sobald der Pod endet: GPU ${g}`,
       ago: s => s < 60 ? `vor ${s} s` : s < 3600 ? `vor ${Math.round(s / 60)} min` : `vor ${Math.round(s / 3600)} h`, never: 'nie',
       issueNoReport: 'Der Node-Agent hat noch kein Inventar gemeldet.',
@@ -131,6 +149,7 @@
     const v = (I18N[lang] && I18N[lang][key]) ?? I18N.en[key];
     return typeof v === 'function' ? v(...args) : v;
   };
+  const tPhase = p => (t('phase') || {})[p] || p || '–';
   function applyStaticTexts() {
     document.documentElement.lang = lang;
     for (const el of document.querySelectorAll('[data-i18n]')) el.textContent = t(el.dataset.i18n);
@@ -143,6 +162,8 @@
   const state = {
     session: null,
     nodes: [],
+    workloads: [],
+    wlBusy: new Set(),
     sel: null,
     view: 'topo',
     msg: '',
@@ -253,13 +274,20 @@
   const selNode = () => state.nodes.find(n => n.name === state.sel);
 
   /* ---------- Rendering ---------- */
+  // A ServiceAccount signs in as system:serviceaccount:<namespace>:<name>. The header shows
+  // only the name; the tooltip keeps the full user name.
+  function shortUser(name) {
+    const m = /^system:serviceaccount:[^:]+:(.+)$/.exec(name || '');
+    return m ? m[1] : name;
+  }
+
   function renderHeader() {
     const s = state.session;
     $('cluster').innerHTML = s && s.clusterName ? `${esc(t('cluster'))} <code>${esc(s.clusterName)}</code>` : '';
     $('user-name').hidden = !s;
     $('logout').hidden = !s;
     if (s) {
-      $('user-name').textContent = s.user.username;
+      $('user-name').textContent = shortUser(s.user.username);
       $('user-name').title = `${s.user.username}${s.access.reserve ? '' : ' · ' + t('readOnly')}`;
     }
     const live = $('live');
@@ -287,6 +315,11 @@
       [`${held}`, t('kpiHeld')],
       [`${state.nodes.length}`, t('kpiNodes')],
     ];
+    if (state.workloads.length) {
+      const hot = state.workloads.filter(w => w.status.phase === 'Running').length;
+      const warm = state.workloads.filter(w => w.status.phase === 'Suspended' || w.status.phase === 'Waiting').length;
+      kpis.splice(4, 0, [`${hot} · ${warm}`, t('kpiWorkloads')]);
+    }
     if (attention) kpis.push([`${attention}`, t('kpiAttention'), 'alert']);
     $('dash-kpis').innerHTML = kpis.map(([b, s, c]) => `<div class="kpi ${c || ''}"><b>${esc(b)}</b><small>${esc(s)}</small></div>`).join('');
   }
@@ -351,17 +384,18 @@
       const fill = kyb ? '#f4f5fb' : pend ? '#fffaf5' : '#f7f7f9';
       const stroke = kyb ? '#2e365f' : pend ? '#f0913f' : '#b8bccb';
       const dash = kyb ? '' : 'stroke-dasharray="5 4"';
-      const tag = gpu.migEnabled ? t('tagMig') : kyb ? t('tagKyb') : pend ? t('tagPending') : r.pods.length ? t('tagPod') : t('tagFree');
+      const tag = gpu.migEnabled ? t('tagMig') : gpu.leasedTo ? t('tagLeased') : kyb ? t('tagKyb') : pend ? t('tagPending') : r.pods.length ? t('tagPod') : t('tagFree');
       s += `<g>
         <rect x="${x}" y="${gy}" width="${cw}" height="${gh}" rx="9" fill="${fill}" stroke="${stroke}" stroke-width="${kyb || pend ? 2.2 : 1.6}" ${dash}/>
         <text x="${x + cw / 2}" y="${gy + 20}" text-anchor="middle" font-size="12.5" font-weight="800">GPU ${gpu.index}</text>
         <text x="${x + cw / 2}" y="${gy + 37}" text-anchor="middle" font-size="9.5" fill="#5b6290" font-family="ui-monospace, Menlo, monospace">${esc(tag)}</text>
         <rect x="${x + 9}" y="${gy + 50}" width="${cw - 18}" height="8" rx="4" fill="#e4e6f0"/>
-        <rect x="${x + 9}" y="${gy + 50}" width="${Math.max(2, (cw - 18) * frac)}" height="8" rx="4" fill="${kyb ? '#2e365f' : '#9aa0b6'}"/>
+        <rect x="${x + 9}" y="${gy + 50}" width="${Math.max(2, (cw - 18) * frac)}" height="8" rx="4" fill="${gpu.leasedTo ? '#d64f2d' : kyb ? '#2e365f' : '#9aa0b6'}"/>
         <text x="${x + cw / 2}" y="${gy + 76}" text-anchor="middle" font-size="10.5" fill="#1d2347" font-family="ui-monospace, Menlo, monospace">${num.format(used)}/${num.format(total)}G</text>
       </g>`;
-      if (r.pods.length) {
-        const label = r.pods[0].name + (r.pods.length > 1 ? ` +${r.pods.length - 1}` : '');
+      const holders = gpu.leasedTo ? [gpu.leasedTo] : r.pods;
+      if (holders.length) {
+        const label = holders[0].name + (holders.length > 1 ? ` +${holders.length - 1}` : '');
         const max = Math.max(4, Math.floor(cw / 6.2));
         s += `<text x="${x + cw / 2}" y="${gy + 95}" text-anchor="middle" font-size="9.5" fill="#7a7f99" font-weight="700">${esc(label.length > max ? label.slice(0, max - 1) + '…' : label)}</text>`;
       }
@@ -401,14 +435,17 @@
   function gpuCard(node, gpu) {
     const r = role(node, gpu);
     const total = gib(gpu.memoryTotalBytes), used = gib(gpu.memoryUsedBytes);
-    const cls = r.st === 'Reserved' ? 'kyb' : r.st === 'PendingReservation' ? 'pending' : r.pods.length ? 'busy' : '';
-    const badge = { Reserved: t('stReserved'), PendingReservation: t('stPending'), Regular: t('stRegular'), Free: t('stFree') }[r.st] || r.st;
+    const cls = (r.st === 'Reserved' ? 'kyb' : r.st === 'PendingReservation' ? 'pending' : r.pods.length ? 'busy' : '') + (gpu.leasedTo ? ' hot' : '');
+    let badge = { Reserved: t('stReserved'), PendingReservation: t('stPending'), Regular: t('stRegular'), Free: t('stFree') }[r.st] || r.st;
+    if (gpu.leasedTo) badge = t('stLeased');
 
     let pod;
     if (r.pods.length) {
       const first = r.pods[0];
       pod = `<b>${esc(podName(first))}</b>${first.container ? ' · ' + esc(first.container) : ''}${r.pods.length > 1 ? ' · ' + esc(t('cardMore', r.pods.length - 1)) : ''}`;
       if (r.st === 'PendingReservation') pod += `<br>${esc(t('cardJoins'))}`;
+    } else if (gpu.leasedTo) {
+      pod = `<b>${esc(podName(gpu.leasedTo))}</b>${gpu.leasedTo.container ? ' · ' + esc(gpu.leasedTo.container) : ''}<br>${esc(t('cardLeased'))}`;
     } else {
       pod = esc(r.st === 'Reserved' ? t('cardInPool') : t('cardFree'));
     }
@@ -453,6 +490,7 @@
     else $('dash-matrix').innerHTML = matrix(node);
     $('dash-gpus').innerHTML = g.map(x => gpuCard(node, x)).join('');
     for (const el of document.querySelectorAll('[data-w]')) el.style.width = `${el.dataset.w}%`;
+    for (const el of document.querySelectorAll('[data-color]')) el.style.background = el.dataset.color;
     $('dash-msg').textContent = state.msg;
     $('dash-msg').classList.toggle('error', state.msgError);
   }
@@ -496,7 +534,40 @@
         ${pending.length ? `<small>${esc(t('sidePendingGpus', pending.join(', ')))}</small>` : ''}
       </div>`;
     }
+    h += renderWorkloads();
     $('dash-side').innerHTML = h;
+  }
+
+  const PHASE_CLASS = { Running: 'ready', Suspended: 'ram', Waiting: 'busy', Suspending: 'busy', Resuming: 'busy', Pending: 'busy', Failed: 'failed' };
+  const PHASE_COLOR = { ready: '#d64f2d', ram: '#f0913f', busy: '#f0913f', failed: '#a93a1e' };
+
+  // All Kybernate workloads, as the models in the dashboard draft: the colour
+  // shows where their state lives, hot in GPU memory or warm in host memory.
+  function renderWorkloads() {
+    let h = `<h4>${esc(t('sideWorkloads'))}</h4>`;
+    h += `<div class="dash-legend"><span class="temp"><i class="t-hot"></i>${esc(t('legendHot'))}</span><span class="temp"><i class="t-warm"></i>${esc(t('legendWarm'))}</span></div>`;
+    if (!state.workloads.length) return h + `<p class="side-empty">${esc(t('sideNoWorkloads'))}</p>`;
+    const canSuspend = state.session && state.session.access.suspend;
+    for (const w of state.workloads) {
+      const st = w.status || {};
+      const cls = PHASE_CLASS[st.phase] || 'busy';
+      const key = `${w.namespace}/${w.name}`;
+      const busy = state.wlBusy.has(key);
+      const gpus = (st.containers || []).flatMap(c => (c.leasedGPUs && c.leasedGPUs.length ? c.leasedGPUs : c.physicalGPUs || []).slice(0, c.gpuCount));
+      const node = state.nodes.find(n => n.name === st.nodeName);
+      const idx = gpus.map(u => { const g = node && gpusOf(node).find(x => x.uuid === u); return g ? g.index : '?'; }).join(', ');
+      let action = '';
+      if (canSuspend && st.phase === 'Running') action = `<button type="button" data-wl="${esc(key)}" data-state="Suspended" ${busy ? 'disabled' : ''}>${esc(busy ? t('wlSaving') : t('suspend'))}</button>`;
+      if (canSuspend && (st.phase === 'Suspended' || st.phase === 'Waiting' || st.phase === 'Failed') && w.spec.state !== 'Running') action = `<button type="button" data-wl="${esc(key)}" data-state="Running" ${busy ? 'disabled' : ''}>${esc(busy ? t('wlSaving') : t('resume'))}</button>`;
+      h += `<div class="mcard${st.nodeName === state.sel ? ' hl' : ''}" data-wl-node="${esc(st.nodeName || '')}">
+        <div class="mcard-h"><b><i data-color="${PHASE_COLOR[cls]}"></i>${esc(key)}</b><span class="state ${cls}">${esc(tPhase(st.phase))}</span></div>
+        <div class="mcard-meta">${esc(t('wlOn', st.nodeName || '–', idx))} · ${esc(st.isolation || 'strict')}</div>
+        ${st.lastSuspendSeconds || st.lastResumeSeconds ? `<div class="mcard-meta">${esc(t('wlLast', st.lastSuspendSeconds || '–', st.lastResumeSeconds || '–'))}</div>` : ''}
+        ${st.message ? `<div class="mcard-msg">${esc(st.message)}</div>` : ''}
+        ${action ? `<div class="mcard-actions">${action}</div>` : ''}
+      </div>`;
+    }
+    return h;
   }
 
   // Re-render while keeping the keyboard focus on the same control.
@@ -520,6 +591,7 @@
     renderNodes();
     renderMain();
     renderSide();
+    for (const el of document.querySelectorAll('[data-color]')) el.style.background = el.dataset.color;
     if (keep) {
       const el = document.querySelector(keep);
       if (el) el.focus({ preventScroll: true });
@@ -563,19 +635,20 @@
   }
 
   /* ---------- Data ---------- */
-  function applyItems(items) {
-    const json = JSON.stringify(items);
+  function applyItems(items, workloads) {
+    const json = JSON.stringify([items, workloads]);
     if (json === state.lastJSON) { renderSide(); return; }
     state.lastJSON = json;
     state.nodes = items;
+    if (workloads) state.workloads = workloads;
     if (!state.nodes.some(n => n.name === state.sel)) state.sel = state.nodes.length ? state.nodes[0].name : null;
     render();
   }
 
   async function refresh() {
     try {
-      const data = await api('/api/gpunodes');
-      applyItems((data && data.items) || []);
+      const [data, wl] = await Promise.all([api('/api/gpunodes'), api('/api/workloads').catch(() => ({ items: [] }))]);
+      applyItems((data && data.items) || [], (wl && wl.items) || []);
     } catch (e) {
       handleError(e);
     }
@@ -602,7 +675,7 @@
     es.addEventListener('gpunodes', e => {
       failures = 0;
       if (state.live !== 'live') { state.live = 'live'; renderHeader(); }
-      try { applyItems(JSON.parse(e.data).items || []); } catch { /* ignore a broken event */ }
+      try { const d = JSON.parse(e.data); applyItems(d.items || [], d.workloads || []); } catch { /* ignore a broken event */ }
     });
     es.onerror = async () => {
       failures++;
@@ -657,6 +730,24 @@
     }
   }
 
+  async function setWorkloadState(key, target) {
+    const [ns, name] = key.split('/');
+    state.wlBusy.add(key);
+    render();
+    try {
+      await api(`/api/workloads/${encodeURIComponent(ns)}/${encodeURIComponent(name)}/state`, { method: 'PUT', body: { state: target } });
+      setMsg(t('msgWorkload', key, target));
+    } catch (e) {
+      if (e.status === 401) { showLogin(t('sessionEnded')); return; }
+      setMsg(t('msgWorkloadFailed', key, e.message), true);
+    } finally {
+      state.wlBusy.delete(key);
+      state.lastJSON = '';
+      if (!state.events) setTimeout(refresh, 1500);
+      render();
+    }
+  }
+
   /* ---------- Events ---------- */
   $('login-form').addEventListener('submit', async e => {
     e.preventDefault();
@@ -692,6 +783,10 @@
   $('app').addEventListener('click', e => {
     const nodeBtn = e.target.closest('[data-node]');
     if (nodeBtn) { state.sel = nodeBtn.dataset.node; setMsg(''); render(); return; }
+    const wlBtn = e.target.closest('[data-wl]');
+    if (wlBtn) { setWorkloadState(wlBtn.dataset.wl, wlBtn.dataset.state); return; }
+    const wlCard = e.target.closest('[data-wl-node]');
+    if (wlCard && wlCard.dataset.wlNode && state.nodes.some(n => n.name === wlCard.dataset.wlNode)) { state.sel = wlCard.dataset.wlNode; render(); return; }
     const viewBtn = e.target.closest('[data-view]');
     if (viewBtn) { state.view = viewBtn.dataset.view; render(); }
   });
