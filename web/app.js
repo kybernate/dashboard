@@ -21,7 +21,7 @@
       nodes: 'Nodes', view: 'View', topology: 'Topology', matrix: 'Matrix', nodeDetails: 'Node details',
       cluster: 'Cluster', readOnly: 'read only', language: 'Language',
       live: 'Live', reconnecting: 'Reconnecting…', polling: 'Refresh every 5 s',
-      kpiPool: 'GPUs in the Kybernate pool', kpiVram: 'VRAM in the pool', kpiPending: 'reservations pending',
+      kpiPool: 'GPUs in the pool', kpiVram: 'VRAM in the pool', kpiPending: 'reservations pending',
       kpiHeld: 'GPUs held by pods', kpiNodes: 'GPU nodes', kpiAttention: 'nodes need attention',
       noGpu: 'no GPUs', singleGpu: 'Single GPU', noGpuLabel: 'No GPU', oneGpu: 'one GPU', noGpusFound: 'no GPUs found',
       nvAll: 'NVLink all-to-all', nvAllDesc: 'every GPU connected to every other through NVLink',
@@ -84,8 +84,8 @@
       nodes: 'Nodes', view: 'Ansicht', topology: 'Topologie', matrix: 'Matrix', nodeDetails: 'Node-Details',
       cluster: 'Cluster', readOnly: 'nur lesen', language: 'Sprache',
       live: 'Live', reconnecting: 'Verbinde neu …', polling: 'Abfrage alle 5 s',
-      kpiPool: 'GPUs im Kybernate-Pool', kpiVram: 'VRAM im Pool', kpiPending: 'wartende Reservierungen',
-      kpiHeld: 'GPUs von Pods belegt', kpiNodes: 'GPU-Nodes', kpiAttention: 'Nodes mit Problemen',
+      kpiPool: 'GPUs im Pool', kpiVram: 'VRAM im Pool', kpiPending: 'Reservierungen offen',
+      kpiHeld: 'GPUs bei Pods', kpiNodes: 'GPU-Nodes', kpiAttention: 'Nodes mit Problemen',
       noGpu: 'keine GPUs', singleGpu: 'Eine GPU', noGpuLabel: 'Keine GPU', oneGpu: 'eine GPU', noGpusFound: 'keine GPUs gefunden',
       nvAll: 'NVLink alle-zu-allen', nvAllDesc: 'jede GPU über NVLink mit jeder anderen verbunden',
       nvPairs: n => `NVLink zwischen ${n} GPU-${n > 1 ? 'Paaren' : 'Paar'}`, otherwise: x => `sonst ${x}`,
@@ -274,13 +274,20 @@
   const selNode = () => state.nodes.find(n => n.name === state.sel);
 
   /* ---------- Rendering ---------- */
+  // A ServiceAccount signs in as system:serviceaccount:<namespace>:<name>. The header shows
+  // only the name; the tooltip keeps the full user name.
+  function shortUser(name) {
+    const m = /^system:serviceaccount:[^:]+:(.+)$/.exec(name || '');
+    return m ? m[1] : name;
+  }
+
   function renderHeader() {
     const s = state.session;
     $('cluster').innerHTML = s && s.clusterName ? `${esc(t('cluster'))} <code>${esc(s.clusterName)}</code>` : '';
     $('user-name').hidden = !s;
     $('logout').hidden = !s;
     if (s) {
-      $('user-name').textContent = s.user.username;
+      $('user-name').textContent = shortUser(s.user.username);
       $('user-name').title = `${s.user.username}${s.access.reserve ? '' : ' · ' + t('readOnly')}`;
     }
     const live = $('live');
